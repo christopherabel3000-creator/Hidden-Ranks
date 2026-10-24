@@ -44,6 +44,7 @@
   --focus: #ffc431; --dest: #e3e9dd; color-scheme: dark;
 }
 html, body { background: var(--bg); color: var(--ink); }
+[hidden] { display: none !important; }
 body { font-family: var(--font-body); font-size: 16px; line-height: 1.5; }
 .wrap { max-width: 72rem; margin: 0 auto; padding-inline: 16px; padding-block: 1.25rem 3rem; }
 .sr-only { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; border: 0; }
@@ -132,6 +133,10 @@ details p { margin: .3rem 0; max-width: 65ch; }
 .err { color: var(--you); font-weight: 700; }
 .err:empty { display: none; }
 .link { word-break: break-all; }
+.reserve { display: grid; gap: .5rem; }
+.reserve p { margin: 0; font-weight: 700; }
+.reserve button { font-weight: 400; padding: .35rem .7rem; }
+.reserve button[aria-pressed="true"] { background: var(--ink); color: var(--bg); font-weight: 700; }
 kbd { font-family: inherit; font-weight: 700; border: 1px solid var(--line); border-radius: 3px; padding: 0 .3rem; }
 </style>
 <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-app-compat.js"></script>
@@ -178,7 +183,13 @@ kbd { font-family: inherit; font-weight: 700; border: 1px solid var(--line); bor
         <p id="setupText">Your army is placed in rows 1 to 4. To swap two pieces, select one and then the other, or type a command such as <kbd>swap a1 b2</kbd>. When you're happy, start the battle.</p>
         <div class="btns">
           <button id="shuffleBtn" type="button">Shuffle my army</button>
+          <button id="manualBtn" type="button">Place pieces myself</button>
+          <button id="fillBtn" type="button" hidden>Place the rest randomly</button>
           <button id="startBtn" type="button" class="primary">Start the battle</button>
+        </div>
+        <div id="reserveBox" class="reserve" hidden>
+          <p id="reserveLeft"></p>
+          <div id="reserveGroup" class="btns" role="group" aria-label="Piece to place"></div>
         </div>
       </div>
       <div id="playBar" class="bar" hidden>
@@ -226,6 +237,13 @@ kbd { font-family: inherit; font-weight: 700; border: 1px solid var(--line); bor
           <p>Capture the enemy Flag, or leave the enemy with no piece that can move. You can see your own ranks; enemy ranks stay hidden until a fight reveals them.</p>
           <h3>Pieces, strongest first</h3>
           <p>Marshal 10 (1), General 9 (1), Colonel 8 (2), Major 7 (3), Captain 6 (4), Lieutenant 5 (4), Sergeant 4 (4), Miner 3 (5), Scout 2 (8), Spy 1 (1), Bomb (6), Flag (1).</p>
+          <h3>Setting up</h3>
+          <ul>
+            <li>Your army starts in a random layout. Swap two pieces by selecting one and then the other, or move a piece by selecting it and then an empty square.</li>
+            <li>Press Place pieces myself to empty your rows and place all 40 pieces by hand. Choose a piece from your reserve, then press Enter on an empty square in rows 1 to 4. Place the rest randomly fills whatever is left.</li>
+            <li>On the board, press <kbd>1</kbd> to <kbd>9</kbd> to choose a piece, <kbd>0</kbd> for the Marshal, <kbd>B</kbd> for a Bomb or <kbd>F</kbd> for the Flag. <kbd>Delete</kbd> picks a placed piece back up.</li>
+            <li>Typed commands: <kbd>place</kbd> starts placing by hand, <kbd>place captain e4</kbd> or <kbd>place 6 e4</kbd> places a piece, <kbd>remove e4</kbd> picks one up, <kbd>reserve</kbd> lists what's left, and <kbd>fill</kbd> places the rest randomly.</li>
+          </ul>
           <h3>Moving</h3>
           <ul>
             <li>Move one piece one square up, down, left or right each turn. No diagonals, and never into the lakes at C5, D5, G5, H5, C6, D6, G6 and H6.</li>
@@ -531,7 +549,7 @@ kbd { font-family: inherit; font-weight: 700; border: 1px solid var(--line); bor
   function doShuffle(){
     if (S.phase !== 'setup') return say('You can only shuffle during setup.');
     if (NET.on && NET.ready) return say(LOCKED);
-    deploy('you'); S.sel = null; render(); say('Your army has been reshuffled.');
+    deploy('you'); S.sel = null; S.reserve = null; S.pick = null; render(); say('Your army has been reshuffled.');
   }
 
   const isLake = (r,c) => (r === 4 || r === 5) && (c === 2 || c === 3 || c === 6 || c === 7);
@@ -687,6 +705,97 @@ kbd { font-family: inherit; font-weight: 700; border: 1px solid var(--line); bor
     return best;
   }
 
+
+  /* ---------- Placing pieces by hand ---------- */
+  const RANK_KEYS = { '1': 1, '2': 2, '3': 3, '4': 4, '5': 5, '6': 6, '7': 7, '8': 8, '9': 9, '0': 10, b: 'B', f: 'F' };
+  const RANK_WORDS = { marshal: 10, general: 9, colonel: 8, major: 7, captain: 6, lieutenant: 5, sergeant: 4, miner: 3, scout: 2, spy: 1, bomb: 'B', flag: 'F', b: 'B', f: 'F' };
+  const rankName = rk => pname({ rank: rk });
+  const leftToPlace = () => S.reserve ? COUNTS.reduce((n, [rk]) => n + (S.reserve[rk] || 0), 0) : 0;
+  const homeSquare = (r, c) => r >= 0 && r <= 3 && c >= 0 && c <= 9;
+  function parseRank(w){
+    w = String(w).toLowerCase();
+    if (RANK_WORDS[w] !== undefined) return RANK_WORDS[w];
+    const n = Number(w); return Number.isInteger(n) && n >= 1 && n <= 10 ? n : null;
+  }
+  function setupOpen(){
+    if (S.phase !== 'setup') { say('You can only arrange your army during setup.'); return false; }
+    if (NET.on && NET.ready) { say(LOCKED); return false; }
+    return true;
+  }
+  function nextPick(){
+    if (S.pick != null && S.reserve[S.pick] > 0) return;
+    const n = COUNTS.find(([rk]) => S.reserve[rk] > 0);
+    S.pick = n ? n[0] : null;
+  }
+  function startManual(){
+    if (!setupOpen()) return;
+    for (let r = 0; r < 4; r++) for (let c = 0; c < 10; c++) S.board[r][c] = null;
+    S.reserve = Object.fromEntries(COUNTS); S.pick = 10; S.sel = null;
+    render();
+    say('Your rows are empty and all 40 pieces are in your reserve. The Marshal 10 is ready to place. Press Enter on an empty square in rows 1 to 4 to place it.');
+  }
+  function choosePick(rk){
+    if (!setupOpen()) return;
+    if (!S.reserve || !leftToPlace()) return say('All your pieces are placed. Press Delete on a piece to pick it back up.');
+    if (!S.reserve[rk]) return say(`You have no ${NAMES[rk]} left to place.`);
+    S.pick = rk; render();
+    say(`Placing ${rankName(rk)}, ${S.reserve[rk]} left.`);
+  }
+  function placeAt(r, c, rk){
+    if (!setupOpen()) return;
+    if (!homeSquare(r, c)) return say('You can only place pieces in rows 1 to 4.');
+    const here = S.board[r][c];
+    if (here) return say(`${sq(r,c)} already has your ${pname(here)}. Press Delete there to pick it back up.`);
+    if (rk == null) rk = S.pick;
+    if (!S.reserve || rk == null || !S.reserve[rk]) return say(rk != null && S.reserve ? `You have no ${NAMES[rk]} left to place.` : 'You have no pieces left to place.');
+    S.board[r][c] = mk('you', rk); S.reserve[rk]--; S.sel = null;
+    nextPick(); render();
+    const n = leftToPlace();
+    say(`${rankName(rk)} placed on ${sq(r,c)}. ` + (n
+      ? `Next: ${rankName(S.pick)}, ${S.reserve[S.pick]} left. ${n} ${n === 1 ? 'piece' : 'pieces'} to go.`
+      : `All 40 pieces are placed. ${NET.on ? "Press I'm ready" : 'Start the battle'} when you're happy.`));
+  }
+  function removeAt(r, c){
+    if (!setupOpen()) return;
+    const p = homeSquare(r, c) ? S.board[r][c] : null;
+    if (!p || p.side !== 'you') return say(`There's no piece of yours on ${sq(r,c)} to pick up.`);
+    if (!S.reserve) S.reserve = Object.fromEntries(COUNTS.map(([rk]) => [rk, 0]));
+    S.board[r][c] = null; S.reserve[p.rank]++; S.pick = p.rank; S.sel = null;
+    render();
+    say(`Picked up your ${pname(p)} from ${sq(r,c)}. It's back in your reserve, ready to place.`);
+  }
+  function fillRest(){
+    if (!setupOpen()) return;
+    if (!leftToPlace()) return say('All your pieces are already placed.');
+    const empties = [];
+    for (let r = 0; r < 4; r++) for (let c = 0; c < 10; c++) if (!S.board[r][c]) empties.push({ r, c });
+    const pool = [];
+    COUNTS.forEach(([rk]) => { for (let i = 0; i < S.reserve[rk]; i++) pool.push(rk); S.reserve[rk] = 0; });
+    shuffle(empties).forEach((e, i) => { S.board[e.r][e.c] = mk('you', pool[i]); });
+    S.pick = null; S.sel = null; render();
+    say(`The remaining ${pool.length} ${pool.length === 1 ? 'piece was' : 'pieces were'} placed randomly. All 40 pieces are placed.`);
+  }
+  function reserveText(){
+    const n = leftToPlace();
+    if (!n) return 'All 40 of your pieces are placed.';
+    return `${n} ${n === 1 ? 'piece' : 'pieces'} left to place: ` + COUNTS.filter(([rk]) => S.reserve[rk]).map(([rk]) => `${S.reserve[rk]} ${NAMES[rk]}`).join(', ') + `. Placing ${rankName(S.pick)} next.`;
+  }
+  function renderReserve(){
+    const show = S.phase === 'setup' && !!S.reserve && leftToPlace() > 0 && !(NET.on && NET.ready);
+    $('reserveBox').hidden = !show;
+    $('fillBtn').hidden = !show;
+    $('manualBtn').hidden = S.phase !== 'setup' || (NET.on && NET.ready);
+    if (!show) return;
+    $('reserveLeft').textContent = `${leftToPlace()} left to place`;
+    const html = COUNTS.filter(([rk]) => S.reserve[rk]).map(([rk]) =>
+      `<button type="button" data-rk="${rk}" aria-pressed="${S.pick === rk}">${rankName(rk)}, ${S.reserve[rk]} left</button>`).join('');
+    const g = $('reserveGroup');
+    if (g.innerHTML === html) return;
+    const had = document.activeElement && document.activeElement.dataset ? document.activeElement.dataset.rk : undefined;
+    g.innerHTML = html;
+    if (had !== undefined) { const b = g.querySelector(`[data-rk="${had}"]`) || g.querySelector('[aria-pressed="true"]') || g.querySelector('button'); if (b) b.focus(); }
+  }
+
   /* ---------- Flow ---------- */
   function freshState(){
     gen++;
@@ -702,6 +811,7 @@ kbd { font-family: inherit; font-weight: 700; border: 1px solid var(--line); bor
   }
 
   function startBattle(){
+    if (S.phase === 'setup' && leftToPlace() > 0) return say(`You still have ${leftToPlace()} pieces to place. Place them, or press Place the rest randomly.`);
     if (NET.on) return readyOnline();
     if (S.phase !== 'setup') return;
     S.phase = 'play'; S.sel = null; S.turn = 'you';
@@ -861,8 +971,11 @@ kbd { font-family: inherit; font-weight: 700; border: 1px solid var(--line); bor
     $('newBtn').hidden = NET.on;
     $('startBtn').textContent = NET.on ? (NET.ready ? 'Ready, waiting for your opponent' : "I'm ready") : 'Start the battle';
     $('shuffleBtn').hidden = NET.on && NET.ready;
-    $('setupText').textContent = !NET.on
-      ? "Your army is placed in rows 1 to 4. To swap two pieces, select one and then the other, or type a command such as swap a1 b2. When you're happy, start the battle."
+    renderReserve();
+    $('setupText').textContent = (S.reserve && leftToPlace() > 0 && !(NET.on && NET.ready))
+      ? 'Choose a piece below, then press Enter on an empty square in rows 1 to 4 to place it. On the board you can also press 1 to 9 to choose a piece, 0 for the Marshal, B for a Bomb or F for the Flag. Press Delete on a placed piece to pick it back up.'
+      : !NET.on
+      ? "Your army is placed in rows 1 to 4. To swap two pieces, select one and then the other, or type a command such as swap a1 b2, or press Place pieces myself to set up from scratch. When you're happy, start the battle."
       : NET.ready ? LOCKED
       : "Your army is placed in rows 1 to 4. To swap two pieces, select one and then the other, or type a command such as swap a1 b2. When you're happy, press I'm ready. Your opponent can't see your layout.";
     renderOnline();
@@ -900,8 +1013,15 @@ kbd { font-family: inherit; font-weight: 700; border: 1px solid var(--line); bor
     const p = S.board[r][c];
     if (S.phase === 'setup') {
       if (NET.on && NET.ready) return say(LOCKED);
-      if (!p || p.side !== 'you') return say('During setup you can only swap your own pieces, in rows 1 to 4.');
-      if (!S.sel) { S.sel = { r, c }; render(); return say(`${pname(p)} at ${sq(r,c)} selected. Choose another of your pieces to swap with it.`); }
+      if (!p && homeSquare(r, c) && S.sel) {
+        const mv = S.board[S.sel.r][S.sel.c];
+        S.board[r][c] = mv; S.board[S.sel.r][S.sel.c] = null; S.sel = null; render();
+        return say(`Moved your ${pname(mv)} to ${sq(r,c)}.`);
+      }
+      if (!p && homeSquare(r, c) && leftToPlace()) return placeAt(r, c);
+      if (!p && homeSquare(r, c)) return say(`${sq(r,c)} is empty. Select one of your pieces first to move it here.`);
+      if (!p || p.side !== 'you') return say('During setup you can only arrange your own pieces, in rows 1 to 4.');
+      if (!S.sel) { S.sel = { r, c }; render(); return say(`${pname(p)} at ${sq(r,c)} selected. Choose another of your pieces to swap with it, or an empty square to move it to.`); }
       if (S.sel.r === r && S.sel.c === c) { S.sel = null; render(); return say('Selection cleared.'); }
       return swap(S.sel, { r, c });
     }
@@ -927,7 +1047,8 @@ kbd { font-family: inherit; font-weight: 700; border: 1px solid var(--line); bor
     if (S.phase === 'setup') {
       if (NET.on && NET.ready) return say(LOCKED);
       const pb = S.board[b.r][b.c];
-      if (!pa || !pb || pa.side !== 'you' || pb.side !== 'you') return say('During setup, name two of your own pieces to swap, such as swap a1 b2.');
+      if (pa && pa.side === 'you' && !pb && homeSquare(b.r, b.c)) { S.board[b.r][b.c] = pa; S.board[a.r][a.c] = null; S.sel = null; render(); return say(`Moved your ${pname(pa)} to ${sq(b.r,b.c)}.`); }
+      if (!pa || !pb || pa.side !== 'you' || pb.side !== 'you') return say('During setup, name two of your own pieces to swap, such as swap a1 b2, or a piece and an empty square in rows 1 to 4.');
       return swap(a, b);
     }
     if (S.phase === 'over') return say('The game is over. Use the New game button to play again.');
@@ -968,6 +1089,18 @@ kbd { font-family: inherit; font-weight: 700; border: 1px solid var(--line); bor
       const ms = movesFrom(s.r, s.c).filter(x => !x.blocked);
       return say(ms.length ? `${pname(p)} at ${sq(s.r,s.c)}. ${movesList(ms)}` : `Your ${pname(p)} at ${sq(s.r,s.c)} has no legal moves right now.`);
     }
+    if (t === 'place' || t === 'manual') return startManual();
+    if (t === 'fill' || t === 'place rest' || t === 'fill rest') return fillRest();
+    if (t === 'reserve') return say(S.reserve ? reserveText() : 'Your whole army is on the board. Type place to empty your rows and place pieces yourself.');
+    if ((mm = t.match(/^(?:remove|pick up|pickup|take) ([a-j])(10|[1-9])$/))) { const s = parseSq(mm[1], mm[2]); return removeAt(s.r, s.c); }
+    if ((mm = t.match(/^place (?:([a-z0-9]+) )?(?:on |at )?([a-j])(10|[1-9])$/))) {
+      const s = parseSq(mm[2], mm[3]);
+      if (!mm[1]) return placeAt(s.r, s.c);
+      const rk = parseRank(mm[1]);
+      if (rk == null) return say(`I don't know a piece called ${mm[1]}. Try a rank number, or a name like captain, bomb or flag.`);
+      return placeAt(s.r, s.c, rk);
+    }
+    if ((mm = t.match(/^(?:choose|pick|use) ([a-z0-9]+)$/))) { const rk = parseRank(mm[1]); return rk == null ? say(`I don't know a piece called ${mm[1]}.`) : choosePick(rk); }
     t = t.replace(/^(move|swap|go|attack) /, '');
     if ((mm = t.match(/^(?:look |l )?([a-j])(10|[1-9])$/))) { const s = parseSq(mm[1], mm[2]); return say(cellText(s.r, s.c, true)); }
     if ((mm = t.match(/^([a-j])(10|[1-9]) ?(?:-|to|>)? ?([a-j])(10|[1-9])$/))) return commandMove(parseSq(mm[1], mm[2]), parseSq(mm[3], mm[4]));
@@ -988,9 +1121,14 @@ kbd { font-family: inherit; font-weight: 700; border: 1px solid var(--line); bor
       case 'Home': nc = 0; break;
       case 'End': nc = 9; break;
       case 'Enter': case ' ': e.preventDefault(); activate(r, c); return;
+      case 'Delete': case 'Backspace': if (S.phase === 'setup') { e.preventDefault(); removeAt(r, c); } return;
       case 'Escape': if (S.sel) { S.sel = null; render(); say('Selection cleared.'); } e.preventDefault(); return;
       case 'r': case 'R': if (!e.ctrlKey && !e.metaKey && !e.altKey) { e.preventDefault(); say(S.lastLog || 'Nothing has happened yet.'); } return;
-      default: return;
+      default: {
+        const k = e.key.toLowerCase();
+        if (S.phase === 'setup' && S.reserve && RANK_KEYS[k] !== undefined && !e.ctrlKey && !e.metaKey && !e.altKey) { e.preventDefault(); choosePick(RANK_KEYS[k]); }
+        return;
+      }
     }
     e.preventDefault();
     if (nr !== r || nc !== c) setFocus(nr, nc, true);
@@ -998,6 +1136,9 @@ kbd { font-family: inherit; font-weight: 700; border: 1px solid var(--line); bor
 
   $('shuffleBtn').addEventListener('click', doShuffle);
   $('startBtn').addEventListener('click', startBattle);
+  $('manualBtn').addEventListener('click', startManual);
+  $('fillBtn').addEventListener('click', fillRest);
+  $('reserveGroup').addEventListener('click', e => { const b = e.target.closest('[data-rk]'); if (!b) return; const v = b.dataset.rk; choosePick(v === 'B' || v === 'F' ? v : Number(v)); });
   $('repeatBtn').addEventListener('click', () => say(S.lastLog || 'Nothing has happened yet.'));
 
   let confirmTimer = null;
