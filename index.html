@@ -1,0 +1,717 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Hidden Ranks</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Atkinson+Hyperlegible:ital,wght@0,400;0,700;1,400&family=Barlow+Condensed:wght@600;700&display=swap">
+<style>
+/* Layout: field-map board on the left, command post (commands, log, casualties) on the right; stacks on phones */
+:root {
+  --bg: #e8ebe3;
+  --panel: #f3f5ef;
+  --ink: #1b2118;
+  --muted: #545e4e;
+  --line: #b4bea8;
+  --tile: #cfd7c4;
+  --tile2: #c4cdb8;
+  --lake: #7ea6b6;
+  --lake-ink: #e9f3f6;
+  --you: #a8302a;
+  --you-ink: #ffffff;
+  --cpu: #2c5a80;
+  --cpu-ink: #ffffff;
+  --cpu-hatch: #3b6c94;
+  --focus: #d99a00;
+  --dest: #1b2118;
+  --font-display: "Barlow Condensed", "Arial Narrow", "Roboto Condensed", sans-serif;
+  --font-body: "Atkinson Hyperlegible", Verdana, "Segoe UI", sans-serif;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --bg: #141913; --panel: #1c231b; --ink: #e3e9dd; --muted: #9ba692; --line: #3a4636;
+    --tile: #29321f; --tile2: #242c1c; --lake: #2b5363; --lake-ink: #a9cad6;
+    --you: #c84a40; --you-ink: #ffffff; --cpu: #3a71a0; --cpu-ink: #ffffff; --cpu-hatch: #2f5f88;
+    --focus: #ffc431; --dest: #e3e9dd; color-scheme: dark;
+  }
+}
+:root[data-theme="dark"] {
+  --bg: #141913; --panel: #1c231b; --ink: #e3e9dd; --muted: #9ba692; --line: #3a4636;
+  --tile: #29321f; --tile2: #242c1c; --lake: #2b5363; --lake-ink: #a9cad6;
+  --you: #c84a40; --you-ink: #ffffff; --cpu: #3a71a0; --cpu-ink: #ffffff; --cpu-hatch: #2f5f88;
+  --focus: #ffc431; --dest: #e3e9dd; color-scheme: dark;
+}
+html, body { background: var(--bg); color: var(--ink); }
+body { font-family: var(--font-body); font-size: 16px; line-height: 1.5; }
+.wrap { max-width: 72rem; margin: 0 auto; padding-inline: 16px; padding-block: 1.25rem 3rem; }
+.sr-only { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; border: 0; }
+
+header { display: grid; gap: .25rem; margin-bottom: 1.25rem; }
+h1 { font-family: var(--font-display); font-weight: 700; font-size: clamp(2.2rem, 7vw, 3.2rem); line-height: 1; letter-spacing: .02em; text-transform: uppercase; margin: 0; text-wrap: balance; }
+h1 span { color: var(--you); }
+.tag { margin: 0; color: var(--muted); max-width: 60ch; }
+.turn { margin: .4rem 0 0; font-family: var(--font-display); font-weight: 600; font-size: 1.35rem; letter-spacing: .04em; text-transform: uppercase; display: flex; align-items: center; gap: .5rem; }
+.turn::before { content: ""; width: .7rem; height: .7rem; border-radius: 2px; background: var(--muted); flex: none; }
+.turn[data-who="you"]::before { background: var(--you); }
+.turn[data-who="cpu"]::before { background: var(--cpu); }
+
+h2 { font-family: var(--font-display); font-weight: 700; font-size: 1.2rem; letter-spacing: .08em; text-transform: uppercase; margin: 0 0 .5rem; }
+
+.layout { display: grid; gap: 1.75rem; }
+@media (min-width: 920px) { .layout { grid-template-columns: minmax(0, 36rem) minmax(0, 1fr); align-items: start; } }
+.layout > * { min-width: 0; }
+
+.bar { background: var(--panel); border: 1px solid var(--line); border-radius: 6px; padding: .8rem 1rem; margin-bottom: 1rem; display: grid; gap: .6rem; }
+.bar p { margin: 0; }
+.btns { display: flex; flex-wrap: wrap; gap: .5rem; }
+
+button { font: inherit; font-weight: 700; color: var(--ink); background: transparent; border: 2px solid var(--ink); border-radius: 5px; padding: .45rem .9rem; cursor: pointer; }
+button:hover { background: var(--tile); }
+button.primary { background: var(--you); border-color: var(--you); color: var(--you-ink); }
+button.primary:hover { filter: brightness(1.08); }
+:focus-visible { outline: 3px solid var(--focus); outline-offset: 2px; }
+
+/* Board */
+.board { width: 100%; }
+.brow, .colhdr { display: grid; grid-template-columns: 1.4rem repeat(10, minmax(0, 1fr)); }
+.rnum, .colhdr span { font-family: var(--font-display); font-weight: 600; color: var(--muted); font-size: .9rem; display: grid; place-items: center; font-variant-numeric: tabular-nums; }
+.colhdr { margin-top: .2rem; }
+.cell { aspect-ratio: 1 / 1; background: var(--tile); position: relative; display: grid; place-items: center; cursor: pointer; border: 1px solid var(--bg); outline: none; }
+.cell.alt { background: var(--tile2); }
+.coord { position: absolute; top: 2px; left: 3px; z-index: 1; font-size: clamp(.45rem, 1.3vw, .62rem); font-weight: 700; line-height: 1; color: var(--muted); pointer-events: none; }
+.cell:has(.tok) .coord { color: var(--you-ink); opacity: .85; }
+.cell.lake .coord { color: var(--lake-ink); }
+.cell.lake { background: var(--lake); cursor: default; }
+.cell.lake::after { content: "≈"; color: var(--lake-ink); font-size: 1.2rem; }
+.cell:focus-visible, .cell.kbd { box-shadow: inset 0 0 0 3px var(--focus); z-index: 2; }
+.cell.lastfrom { box-shadow: inset 0 0 0 2px var(--muted); }
+.cell.lastto .tok { box-shadow: 0 0 0 2px var(--focus); }
+
+.tok { width: 84%; height: 84%; border-radius: 4px; display: grid; place-items: center; align-content: center; line-height: 1; gap: 1px; }
+.tok b { font-family: var(--font-display); font-weight: 700; font-size: clamp(.85rem, 3.4vw, 1.4rem); font-variant-numeric: tabular-nums; }
+.tok i { font-style: normal; font-size: clamp(.5rem, 1.4vw, .62rem); text-transform: uppercase; letter-spacing: .06em; opacity: .9; }
+.tok.you { background: var(--you); color: var(--you-ink); }
+.tok.cpu { background: var(--cpu); color: var(--cpu-ink); }
+.tok.hid { background: repeating-linear-gradient(135deg, var(--cpu) 0 5px, var(--cpu-hatch) 5px 10px); color: var(--cpu-ink); }
+.tok.hid.moved::after { content: ""; width: 22%; aspect-ratio: 1; border-radius: 50%; background: var(--cpu-ink); opacity: .75; }
+.tok.seen { box-shadow: inset 0 -3px 0 rgba(255,255,255,.55); }
+.cell.sel .tok { outline: 3px solid var(--focus); outline-offset: 1px; transform: translateY(-2px); }
+.cell.dest::before { content: ""; position: absolute; width: 26%; aspect-ratio: 1; border-radius: 50%; background: var(--dest); opacity: .45; }
+.cell.tgt .tok { outline: 3px dashed var(--focus); outline-offset: -3px; }
+@media (max-width: 480px) { .tok i { display: none; } }
+@media (prefers-reduced-motion: no-preference) { .tok { transition: transform .12s ease; } }
+
+.msg { margin: .9rem 0 0; min-height: 3em; padding: .6rem .8rem; border-left: 4px solid var(--focus); background: var(--panel); }
+
+/* Command post */
+.post { display: grid; gap: 1.6rem; }
+.cmdrow { display: flex; gap: .5rem; }
+.cmdrow input { flex: 1; min-width: 0; font: inherit; font-size: 1.05rem; color: var(--ink); background: var(--panel); border: 2px solid var(--line); border-radius: 5px; padding: .45rem .7rem; }
+.cmdrow input:focus-visible { border-color: var(--focus); outline-offset: 0; }
+label { display: block; margin-bottom: .3rem; font-weight: 700; }
+.hint { color: var(--muted); font-size: .9rem; margin: .35rem 0 0; }
+.log { list-style: none; margin: 0; padding: 0; max-height: 18rem; overflow-y: auto; border: 1px solid var(--line); border-radius: 6px; background: var(--panel); }
+.log li { padding: .45rem .75rem; border-bottom: 1px solid var(--line); border-left: 4px solid transparent; }
+.log li:last-child { border-bottom: 0; }
+.log li.you { border-left-color: var(--you); }
+.log li.cpu { border-left-color: var(--cpu); }
+.log li.sys { color: var(--muted); }
+.loss { margin: 0 0 .4rem; }
+.loss strong { display: block; }
+details { background: var(--panel); border: 1px solid var(--line); border-radius: 6px; padding: .6rem .9rem; }
+details summary { cursor: pointer; font-weight: 700; }
+details h3 { font-size: 1rem; margin: 1rem 0 .3rem; }
+details ul { margin: 0; padding-left: 1.2rem; }
+details p { margin: .3rem 0; max-width: 65ch; }
+kbd { font-family: inherit; font-weight: 700; border: 1px solid var(--line); border-radius: 3px; padding: 0 .3rem; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <h1>Hidden <span>Ranks</span></h1>
+    <p class="tag">Capture the enemy Flag. You command Red from rows 1 to 4; the computer commands Blue from rows 7 to 10.</p>
+    <p id="turnLine" class="turn" data-who="">Setup</p>
+  </header>
+
+  <main class="layout">
+    <section aria-labelledby="boardHead">
+      <h2 id="boardHead">Battlefield</h2>
+      <div id="setupBar" class="bar">
+        <p>Your army is placed in rows 1 to 4. To swap two pieces, select one and then the other, or type a command such as <kbd>swap a1 b2</kbd>. When you're happy, start the battle.</p>
+        <div class="btns">
+          <button id="shuffleBtn" type="button">Shuffle my army</button>
+          <button id="startBtn" type="button" class="primary">Start the battle</button>
+        </div>
+      </div>
+      <div id="playBar" class="bar" hidden>
+        <div class="btns">
+          <button id="repeatBtn" type="button">Repeat last event</button>
+          <button id="newBtn" type="button">New game</button>
+        </div>
+      </div>
+      <div class="board">
+        <div id="grid" role="grid" aria-label="Battlefield, 10 rows by 10 columns"></div>
+        <div class="colhdr" aria-hidden="true"><span></span><span>A</span><span>B</span><span>C</span><span>D</span><span>E</span><span>F</span><span>G</span><span>H</span><span>I</span><span>J</span></div>
+      </div>
+      <p id="msg" class="msg" aria-live="polite"></p>
+    </section>
+
+    <div class="post">
+      <section aria-labelledby="cmdHead">
+        <h2 id="cmdHead">Commands</h2>
+        <form id="cmdForm" autocomplete="off">
+          <label for="cmd">Type a command</label>
+          <div class="cmdrow">
+            <input id="cmd" type="text" autocapitalize="off" spellcheck="false" placeholder="e4 e5">
+            <button type="submit">Send</button>
+          </div>
+        </form>
+        <p class="hint">Try <kbd>e4 e5</kbd> to move, <kbd>f7</kbd> to look at a square, <kbd>row 4</kbd>, <kbd>moves</kbd>, <kbd>known</kbd>, <kbd>status</kbd>, or <kbd>help</kbd>.</p>
+      </section>
+
+      <section aria-labelledby="logHead">
+        <h2 id="logHead">Battle log</h2>
+        <ol id="log" class="log" role="log" aria-live="polite" aria-relevant="additions"></ol>
+      </section>
+
+      <section aria-labelledby="lossHead">
+        <h2 id="lossHead">Casualties</h2>
+        <p class="loss"><strong>Enemy pieces you have taken</strong><span id="lossCpu">None yet.</span></p>
+        <p class="loss"><strong>Your pieces lost</strong><span id="lossYou">None yet.</span></p>
+      </section>
+
+      <section aria-labelledby="helpHead">
+        <h2 id="helpHead">How to play</h2>
+        <details>
+          <summary>Rules, keys and commands</summary>
+          <h3>Goal</h3>
+          <p>Capture the enemy Flag, or leave the enemy with no piece that can move. You can see your own ranks; enemy ranks stay hidden until a fight reveals them.</p>
+          <h3>Pieces, strongest first</h3>
+          <p>Marshal 10 (1), General 9 (1), Colonel 8 (2), Major 7 (3), Captain 6 (4), Lieutenant 5 (4), Sergeant 4 (4), Miner 3 (5), Scout 2 (8), Spy 1 (1), Bomb (6), Flag (1).</p>
+          <h3>Moving</h3>
+          <ul>
+            <li>Move one piece one square up, down, left or right each turn. No diagonals, and never into the lakes at C5, D5, G5, H5, C6, D6, G6 and H6.</li>
+            <li>Scouts move any distance in a straight line and can attack at the end. A Scout that moves more than one square reveals that it's a Scout.</li>
+            <li>Bombs and the Flag never move.</li>
+            <li>A piece can't go back and forth between the same two squares more than three moves in a row.</li>
+          </ul>
+          <h3>Fighting</h3>
+          <ul>
+            <li>Move onto an enemy to attack. Both ranks are revealed and the higher rank wins. Equal ranks remove both.</li>
+            <li>The Spy defeats the Marshal, but only when the Spy attacks.</li>
+            <li>A Bomb destroys any attacker except a Miner, which defuses it.</li>
+          </ul>
+          <h3>Keyboard on the battlefield</h3>
+          <ul>
+            <li><kbd>Arrow keys</kbd> move between squares. Up moves toward the enemy side. <kbd>Home</kbd> and <kbd>End</kbd> jump to columns A and J.</li>
+            <li><kbd>Enter</kbd> or <kbd>Space</kbd> selects your piece and reads where it can go. Press it again on a destination to move.</li>
+            <li><kbd>Escape</kbd> cancels a selection. <kbd>R</kbd> repeats the last event.</li>
+          </ul>
+          <h3>Typed commands</h3>
+          <ul>
+            <li><kbd>e4 e5</kbd> moves or attacks. During setup it swaps two of your pieces.</li>
+            <li><kbd>f7</kbd> describes one square. <kbd>row 7</kbd> or <kbd>column e</kbd> reads a whole line.</li>
+            <li><kbd>moves</kbd> lists every legal move; <kbd>moves e4</kbd> lists one piece's moves.</li>
+            <li><kbd>known</kbd> lists revealed enemy pieces. <kbd>status</kbd> counts what's left.</li>
+            <li><kbd>shuffle</kbd> and <kbd>start</kbd> work during setup.</li>
+          </ul>
+          <h3>About the computer</h3>
+          <p>The computer plays fair. It only knows what you would know: which of your pieces have moved and which have been revealed in battle.</p>
+        </details>
+      </section>
+    </div>
+  </main>
+</div>
+
+<script>
+(() => {
+  const COLS = 'ABCDEFGHIJ';
+  const NAMES = {10:'Marshal',9:'General',8:'Colonel',7:'Major',6:'Captain',5:'Lieutenant',4:'Sergeant',3:'Miner',2:'Scout',1:'Spy',B:'Bomb',F:'Flag'};
+  const SHORT = {10:'Msh',9:'Gen',8:'Col',7:'Maj',6:'Cpt',5:'Lt',4:'Sgt',3:'Min',2:'Sct',1:'Spy',B:'Bomb',F:'Flag'};
+  const COUNTS = [[10,1],[9,1],[8,2],[7,3],[6,4],[5,4],[4,4],[3,5],[2,8],[1,1],['B',6],['F',1]];
+  const DIRS = [[1,0],[-1,0],[0,1],[0,-1]];
+  const TWO_SQ = "That move isn't allowed: a piece can't go back and forth between the same two squares more than three moves in a row.";
+
+  const $ = id => document.getElementById(id);
+  const gridEl = $('grid'), logEl = $('log'), msgEl = $('msg');
+  let S, uid = 0, gen = 0;
+  const cells = [];
+
+  const isLake = (r,c) => (r === 4 || r === 5) && (c === 2 || c === 3 || c === 6 || c === 7);
+  const sq = (r,c) => COLS[c] + (r + 1);
+  const key = p => p.r * 10 + p.c;
+  const movable = p => p.rank !== 'B' && p.rank !== 'F';
+  const pname = p => movable(p) ? `${NAMES[p.rank]} ${p.rank}` : NAMES[p.rank];
+  const rand = n => Math.floor(Math.random() * n);
+  const inB = (r,c) => r >= 0 && r < 10 && c >= 0 && c < 10;
+  const mk = (side, rank) => ({ id: ++uid, side, rank, revealed: false, moved: false });
+
+  function shuffle(a){ for (let i = a.length - 1; i > 0; i--) { const j = rand(i + 1); [a[i], a[j]] = [a[j], a[i]]; } return a; }
+
+  function deploy(side){
+    const rows = side === 'you' ? [0,1,2,3] : [9,8,7,6]; // back row first
+    rows.forEach(r => { for (let c = 0; c < 10; c++) S.board[r][c] = null; });
+    const pool = [];
+    COUNTS.forEach(([rk,n]) => { for (let i = 0; i < n; i++) pool.push(rk); });
+    const take = rk => pool.splice(pool.indexOf(rk), 1)[0];
+    const put = (i,c,rk) => { const r = rows[i]; if (c < 0 || c > 9 || S.board[r][c]) return false; S.board[r][c] = mk(side, take(rk)); return true; };
+    const empties = i => { const out = []; for (let c = 0; c < 10; c++) if (!S.board[rows[i]][c]) out.push(c); return out; };
+    const fc = 1 + rand(8);
+    put(0, fc, 'F'); put(0, fc - 1, 'B'); put(0, fc + 1, 'B'); put(1, fc, 'B');
+    while (pool.includes('B')) { const i = 1 + rand(2); const e = empties(i); put(i, e[rand(e.length)], 'B'); }
+    for (let k = 0; k < 3; k++) { const e = empties(3); put(3, e[rand(e.length)], 2); }
+    shuffle(pool);
+    for (let i = 0; i < 4; i++) for (let c = 0; c < 10; c++) if (!S.board[rows[i]][c]) S.board[rows[i]][c] = mk(side, pool.pop());
+  }
+
+  function resolve(a, d){
+    if (d.rank === 'F') return 'att';
+    if (d.rank === 'B') return a.rank === 3 ? 'att' : 'def';
+    if (a.rank === 1 && d.rank === 10) return 'att';
+    return a.rank > d.rank ? 'att' : a.rank < d.rank ? 'def' : 'both';
+  }
+
+  function twoSq(p, from, to){
+    const h = S.hist[p.side]; if (h.length < 3) return false;
+    const a = key(from), b = key(to);
+    return h.slice(-3).every(x => x.id === p.id && ((x.a === a && x.b === b) || (x.a === b && x.b === a)));
+  }
+
+  function movesFrom(r, c){
+    const p = S.board[r][c]; if (!p || !movable(p)) return [];
+    const out = [];
+    for (const [dr,dc] of DIRS) {
+      let nr = r + dr, nc = c + dc, dist = 1;
+      while (inB(nr,nc) && !isLake(nr,nc)) {
+        const t = S.board[nr][nc];
+        if (t && t.side === p.side) break;
+        const m = { piece: p, from: {r,c}, to: {r:nr,c:nc}, target: t, dist };
+        m.blocked = twoSq(p, m.from, m.to);
+        out.push(m);
+        if (t || p.rank !== 2) break;
+        nr += dr; nc += dc; dist++;
+      }
+    }
+    return out;
+  }
+  function allMoves(side){
+    const out = [];
+    for (let r = 0; r < 10; r++) for (let c = 0; c < 10; c++) {
+      const p = S.board[r][c];
+      if (p && p.side === side) movesFrom(r,c).forEach(m => { if (!m.blocked) out.push(m); });
+    }
+    return out;
+  }
+
+  function combatText(a, d, o, from, to){
+    if (a.side === 'you') {
+      const s = `Your ${pname(a)} attacked from ${from} into ${to}. It was the enemy ${pname(d)}. `;
+      if (d.rank === 'F') return s + 'You captured the enemy Flag!';
+      if (d.rank === 'B') return s + (o === 'att' ? 'Your Miner defused it.' : `Your ${NAMES[a.rank]} was destroyed.`);
+      if (a.rank === 1 && d.rank === 10) return s + 'Your Spy took down the Marshal!';
+      return s + (o === 'att' ? `You won. The enemy ${NAMES[d.rank]} is removed.` : o === 'def' ? `You lost. Your ${NAMES[a.rank]} is removed.` : 'Equal ranks. Both pieces are removed.');
+    }
+    const s = `Enemy ${pname(a)} attacked from ${from} into ${to}, hitting your ${pname(d)}. `;
+    if (d.rank === 'F') return s + 'The enemy captured your Flag.';
+    if (d.rank === 'B') return s + (o === 'att' ? 'The enemy Miner defused your Bomb.' : 'Your Bomb destroyed it.');
+    if (a.rank === 1 && d.rank === 10) return s + 'The enemy Spy took down your Marshal.';
+    return s + (o === 'att' ? `You lost your ${NAMES[d.rank]}.` : o === 'def' ? `You won. The enemy ${NAMES[a.rank]} is removed.` : 'Equal ranks. Both pieces are removed.');
+  }
+
+  function applyMove(m){
+    const p = m.piece, t = m.target, side = p.side;
+    S.board[m.from.r][m.from.c] = null;
+    p.moved = true;
+    if (p.rank === 2 && m.dist > 1) p.revealed = true;
+    S.hist[side].push({ id: p.id, a: key(m.from), b: key(m.to) });
+    if (S.hist[side].length > 8) S.hist[side].shift();
+    S.last = { from: m.from, to: m.to, side };
+    const from = sq(m.from.r, m.from.c), to = sq(m.to.r, m.to.c);
+    if (!t) {
+      S.board[m.to.r][m.to.c] = p;
+      if (side === 'you') return `You moved your ${pname(p)} from ${from} to ${to}.`;
+      return p.revealed ? `Enemy ${pname(p)} moved from ${from} to ${to}.` : `Enemy moved a hidden piece from ${from} to ${to}.`;
+    }
+    const o = resolve(p, t);
+    p.revealed = true; t.revealed = true;
+    if (o === 'att') { S.lost[t.side].push(t); S.board[m.to.r][m.to.c] = p; }
+    else if (o === 'def') { S.lost[side].push(p); }
+    else { S.lost[side].push(p); S.lost[t.side].push(t); S.board[m.to.r][m.to.c] = null; }
+    if (t.rank === 'F') S.winner = side;
+    return combatText(p, t, o, from, to);
+  }
+
+  /* ---------- Computer opponent ---------- */
+  const VAL = {10:10, 9:8, 8:6.5, 7:5, 6:4, 5:3, 4:2.5, 3:3, 2:1.5, 1:4, B:2, F:100};
+  function threatAt(r, c, p){
+    let t = 0;
+    for (const [dr,dc] of DIRS) {
+      const nr = r + dr, nc = c + dc; if (!inB(nr,nc)) continue;
+      const q = S.board[nr][nc];
+      if (q && q.side === 'you' && q.revealed && movable(q)) {
+        const o = resolve(q, p);
+        if (o === 'att') t = Math.max(t, VAL[p.rank]); else if (o === 'both') t = Math.max(t, VAL[p.rank] * 0.5);
+      }
+    }
+    return t;
+  }
+  function chooseCpu(ms){
+    let best = ms[0], bs = -Infinity;
+    const last = S.hist.cpu[S.hist.cpu.length - 1];
+    for (const m of ms) {
+      const p = m.piece, t = m.target, r = p.rank;
+      let s = Math.random() * 0.8, survives = !t;
+      if (t) {
+        if (t.revealed) {
+          const o = resolve(p, t);
+          if (o === 'att') { s += 6 + VAL[t.rank]; survives = true; }
+          else if (o === 'both') s += VAL[t.rank] - VAL[r] + 1.5;
+          else s -= 6 + VAL[r];
+        } else if (!t.moved) { // could be a Bomb or the Flag
+          if (r === 3) s += 2.5; else if (r === 2) s += 1.5; else if (r === 1) s -= 6;
+          else if (r >= 8) s -= 3; else if (r >= 6) s -= 0.5; else s += 0.8;
+          if (m.to.r === 0) s += 0.5;
+        } else {
+          if (r === 1) s -= 4; else if (r === 2) s += 1.2; else if (r >= 8) s += 1.5; else s += 0.6;
+        }
+      } else {
+        s += 0.35 * Math.max(-1, Math.min(3, m.from.r - m.to.r));
+        if (r >= 9 || r === 1) s -= 0.4;
+        if (last && last.id === p.id && last.a === key(m.to)) s -= 0.8;
+        for (const [dr,dc] of DIRS) {
+          const nr = m.to.r + dr, nc = m.to.c + dc; if (!inB(nr,nc)) continue;
+          const q = S.board[nr][nc];
+          if (q && q.side === 'you' && q.revealed && resolve(p, q) === 'att') s += 0.7;
+        }
+      }
+      if (survives) s += 0.9 * (threatAt(m.from.r, m.from.c, p) - threatAt(m.to.r, m.to.c, p));
+      if (s > bs) { bs = s; best = m; }
+    }
+    return best;
+  }
+
+  /* ---------- Flow ---------- */
+  function newGame(){
+    gen++;
+    S = { phase: 'setup', board: Array.from({length:10}, () => Array(10).fill(null)), turn: 'you', sel: null,
+          focus: { r: 3, c: 4 }, lost: { you: [], cpu: [] }, hist: { you: [], cpu: [] }, last: null, winner: null, lastLog: '' };
+    deploy('you'); deploy('cpu');
+    logEl.innerHTML = '';
+    logEvent('New game. Arrange your army in rows 1 to 4, then start the battle.', 'sys');
+    render();
+  }
+
+  function startBattle(){
+    if (S.phase !== 'setup') return;
+    S.phase = 'play'; S.sel = null; S.turn = 'you';
+    logEvent('The battle begins. You move first.', 'sys');
+    render();
+    setFocus(S.focus.r, S.focus.c, true);
+  }
+
+  function doPlayerMove(m){
+    S.sel = null;
+    logEvent(applyMove(m), 'you');
+    S.focus = { ...m.to };
+    if (S.winner) return endGame();
+    if (!allMoves('cpu').length) { S.winner = 'you'; logEvent('The enemy has no pieces that can move.', 'sys'); return endGame(); }
+    S.turn = 'cpu'; render();
+    const g = gen;
+    setTimeout(() => { if (g === gen) cpuTurn(); }, 700);
+  }
+
+  function cpuTurn(){
+    if (S.phase !== 'play') return;
+    const ms = allMoves('cpu');
+    if (!ms.length) { S.winner = 'you'; return endGame(); }
+    logEvent(applyMove(chooseCpu(ms)), 'cpu');
+    if (S.winner) return endGame();
+    if (!allMoves('you').length) { S.winner = 'cpu'; logEvent('You have no pieces that can move.', 'sys'); return endGame(); }
+    S.turn = 'you'; render();
+  }
+
+  function endGame(){
+    S.phase = 'over'; S.sel = null;
+    for (let r = 0; r < 10; r++) for (let c = 0; c < 10; c++) { const p = S.board[r][c]; if (p && p.side === 'cpu') p.revealed = true; }
+    logEvent(S.winner === 'you' ? 'Victory! You win the game. All enemy pieces are now shown on the board.' : 'Defeat. The computer wins this time. All enemy pieces are now shown on the board.', 'sys');
+    render();
+  }
+
+  /* ---------- Text helpers ---------- */
+  function cellText(r, c, withSq){
+    const pre = withSq ? sq(r,c) + ', ' : '';
+    if (isLake(r,c)) return pre + 'lake';
+    const p = S.board[r][c];
+    let s;
+    if (!p) s = 'empty';
+    else if (p.side === 'you') s = `your ${pname(p)}` + (p.revealed && S.phase === 'play' ? ', known to enemy' : '');
+    else if (p.revealed) s = `enemy ${pname(p)}`;
+    else s = 'enemy, unknown' + (S.phase === 'setup' ? '' : p.moved ? ', has moved' : ', has not moved');
+    return pre + s;
+  }
+  function cellLabel(r, c){
+    let s = cellText(r, c, true);
+    if (S.sel && S.sel.r === r && S.sel.c === c) s += ', selected';
+    if (S.dests && S.dests.has(r*10+c)) s += S.board[r][c] ? ', you can attack' : ', you can move here';
+    if (S.last && S.last.side === 'cpu' && S.last.to.r === r && S.last.to.c === c && S.board[r][c]) s += ', enemy just moved here';
+    return s;
+  }
+  const movesList = ms => 'Can go to ' + ms.map(m => sq(m.to.r, m.to.c) + (m.target ? ' to attack' : '')).join(', ') + '.';
+  function rowText(r){ return `Row ${r+1}: ` + COLS.split('').map((L,c) => `${L}, ${cellText(r,c,false)}`).join('; ') + '.'; }
+  function colText(c){ const parts = []; for (let r = 0; r < 10; r++) parts.push(`${r+1}, ${cellText(r,c,false)}`); return `Column ${COLS[c]}, row 1 upward: ` + parts.join('; ') + '.'; }
+  function listNames(arr){
+    if (!arr.length) return 'None yet.';
+    const n = {}; arr.forEach(p => { n[p.rank] = (n[p.rank] || 0) + 1; });
+    return COUNTS.filter(([rk]) => n[rk]).map(([rk]) => `${n[rk]} ${NAMES[rk]}${n[rk] > 1 ? 's' : ''}`).join(', ') + '.';
+  }
+  function remainingText(side){
+    const lost = {}; S.lost[side].forEach(p => { lost[p.rank] = (lost[p.rank] || 0) + 1; });
+    return COUNTS.map(([rk,n]) => [rk, n - (lost[rk] || 0)]).filter(([,n]) => n > 0).map(([rk,n]) => `${n} ${NAMES[rk]}${n > 1 ? 's' : ''}`).join(', ') + '.';
+  }
+  function statusText(){
+    const count = side => 40 - S.lost[side].length;
+    const turn = S.phase === 'setup' ? 'Setup.' : S.phase === 'over' ? 'Game over.' : S.turn === 'you' ? 'Your turn.' : 'Enemy is moving.';
+    return `${turn} You have ${count('you')} pieces, the enemy has ${count('cpu')}. Enemy pieces still on the board: ${remainingText('cpu')}`;
+  }
+  function knownText(){
+    const out = [];
+    for (let r = 9; r >= 0; r--) for (let c = 0; c < 10; c++) { const p = S.board[r][c]; if (p && p.side === 'cpu' && p.revealed) out.push(`${pname(p)} at ${sq(r,c)}`); }
+    return out.length ? 'Revealed enemy pieces: ' + out.join('; ') + '.' : 'No enemy pieces on the board have been revealed yet.';
+  }
+  function allMovesText(){
+    const by = new Map();
+    allMoves('you').forEach(m => { const k = key(m.from); if (!by.has(k)) by.set(k, []); by.get(k).push(m); });
+    if (!by.size) return 'You have no legal moves.';
+    return [...by.values()].map(ms => `${pname(ms[0].piece)} at ${sq(ms[0].from.r, ms[0].from.c)}: ` + ms.map(m => sq(m.to.r, m.to.c) + (m.target ? ' attack' : '')).join(', ')).join('. ') + '.';
+  }
+
+  /* ---------- Output ---------- */
+  let sayTimer;
+  function say(text){
+    msgEl.textContent = '';
+    clearTimeout(sayTimer);
+    sayTimer = setTimeout(() => { msgEl.textContent = text; }, 40);
+  }
+  function logEvent(text, who){
+    const li = document.createElement('li');
+    li.textContent = text; li.className = who || '';
+    logEl.appendChild(li);
+    while (logEl.children.length > 80) logEl.firstChild.remove();
+    logEl.scrollTop = logEl.scrollHeight;
+    S.lastLog = text;
+  }
+
+  /* ---------- Board DOM ---------- */
+  function buildGrid(){
+    for (let r = 9; r >= 0; r--) {
+      const row = document.createElement('div');
+      row.className = 'brow'; row.setAttribute('role', 'row');
+      const num = document.createElement('span');
+      num.className = 'rnum'; num.textContent = r + 1; num.setAttribute('aria-hidden', 'true');
+      row.appendChild(num);
+      cells[r] = [];
+      for (let c = 0; c < 10; c++) {
+        const el = document.createElement('div');
+        el.setAttribute('role', 'gridcell');
+        el.tabIndex = -1;
+        el.dataset.r = r; el.dataset.c = c;
+        el.addEventListener('click', () => { setFocus(r, c, true); activate(r, c); });
+        row.appendChild(el);
+        cells[r][c] = el;
+      }
+      gridEl.appendChild(row);
+    }
+  }
+
+  function render(){
+    S.dests = null;
+    if (S.sel && S.phase === 'play') S.dests = new Set(movesFrom(S.sel.r, S.sel.c).filter(m => !m.blocked).map(m => m.to.r*10 + m.to.c));
+    for (let r = 0; r < 10; r++) for (let c = 0; c < 10; c++) {
+      const el = cells[r][c], p = S.board[r][c];
+      const cls = ['cell'];
+      if ((r + c) % 2) cls.push('alt');
+      if (isLake(r,c)) cls.push('lake');
+      if (S.sel && S.sel.r === r && S.sel.c === c) cls.push('sel');
+      if (S.dests && S.dests.has(r*10+c)) cls.push(p ? 'tgt' : 'dest');
+      if (S.last && S.last.from.r === r && S.last.from.c === c) cls.push('lastfrom');
+      if (S.last && S.last.to.r === r && S.last.to.c === c) cls.push('lastto');
+      el.className = cls.join(' ');
+      el.setAttribute('aria-selected', S.sel && S.sel.r === r && S.sel.c === c ? 'true' : 'false');
+      el.tabIndex = (S.focus.r === r && S.focus.c === c) ? 0 : -1;
+      let html = '';
+      if (p) {
+        if (p.side === 'you') {
+          const big = movable(p) ? p.rank : p.rank;
+          html = `<span class="tok you${p.revealed && S.phase !== 'setup' ? ' seen' : ''}" aria-hidden="true"><b>${big}</b><i>${SHORT[p.rank]}</i></span>`;
+        } else if (p.revealed) {
+          html = `<span class="tok cpu" aria-hidden="true"><b>${p.rank}</b><i>${SHORT[p.rank]}</i></span>`;
+        } else {
+          html = `<span class="tok hid${p.moved ? ' moved' : ''}" aria-hidden="true"></span>`;
+        }
+      }
+      html = `<span class="sr-only">${cellLabel(r, c)}</span><span class="coord" aria-hidden="true">${sq(r, c)}</span>` + html;
+      if (el.innerHTML !== html) el.innerHTML = html;
+    }
+    const tl = $('turnLine');
+    if (S.phase === 'setup') { tl.textContent = 'Setup: arrange your army'; tl.dataset.who = ''; }
+    else if (S.phase === 'over') { tl.textContent = S.winner === 'you' ? 'You won' : 'The computer won'; tl.dataset.who = S.winner; }
+    else { tl.textContent = S.turn === 'you' ? 'Your turn' : 'Enemy is moving'; tl.dataset.who = S.turn; }
+    $('setupBar').hidden = S.phase !== 'setup';
+    $('playBar').hidden = S.phase === 'setup';
+    $('lossCpu').textContent = listNames(S.lost.cpu);
+    $('lossYou').textContent = listNames(S.lost.you);
+  }
+
+  function setFocus(r, c, moveDom){
+    const old = cells[S.focus.r][S.focus.c]; old.tabIndex = -1;
+    S.focus = { r, c };
+    cells[r][c].tabIndex = 0;
+    if (moveDom) cells[r][c].focus();
+  }
+
+  /* ---------- Actions ---------- */
+  function swap(a, b){
+    const pa = S.board[a.r][a.c], pb = S.board[b.r][b.c];
+    S.board[a.r][a.c] = pb; S.board[b.r][b.c] = pa; S.sel = null;
+    render();
+    say(`Swapped. ${pname(pa)} is now on ${sq(b.r,b.c)}, and ${pname(pb)} is on ${sq(a.r,a.c)}.`);
+  }
+
+  function selectPiece(r, c){
+    const p = S.board[r][c];
+    if (!movable(p)) { S.sel = null; render(); return say(`Your ${pname(p)} at ${sq(r,c)} can't move.`); }
+    const ms = movesFrom(r, c).filter(m => !m.blocked);
+    if (!ms.length) { S.sel = null; render(); return say(`Your ${pname(p)} at ${sq(r,c)} has no legal moves right now.`); }
+    S.sel = { r, c }; render();
+    say(`${pname(p)} at ${sq(r,c)} selected. ${movesList(ms)}`);
+  }
+
+  function activate(r, c){
+    const p = S.board[r][c];
+    if (S.phase === 'setup') {
+      if (!p || p.side !== 'you') return say('During setup you can only swap your own pieces, in rows 1 to 4.');
+      if (!S.sel) { S.sel = { r, c }; render(); return say(`${pname(p)} at ${sq(r,c)} selected. Choose another of your pieces to swap with it.`); }
+      if (S.sel.r === r && S.sel.c === c) { S.sel = null; render(); return say('Selection cleared.'); }
+      return swap(S.sel, { r, c });
+    }
+    if (S.phase === 'over') return say(cellText(r, c, true));
+    if (S.turn !== 'you') return say('Wait for the enemy to move.');
+    if (S.sel) {
+      if (S.sel.r === r && S.sel.c === c) { S.sel = null; render(); return say('Selection cleared.'); }
+      const m = movesFrom(S.sel.r, S.sel.c).find(x => x.to.r === r && x.to.c === c);
+      if (m && !m.blocked) return doPlayerMove(m);
+      if (m && m.blocked) return say(TWO_SQ);
+    }
+    if (p && p.side === 'you') return selectPiece(r, c);
+    if (S.sel) {
+      const ms = movesFrom(S.sel.r, S.sel.c).filter(x => !x.blocked);
+      return say(`Your ${pname(S.board[S.sel.r][S.sel.c])} can't reach ${sq(r,c)}. ${movesList(ms)}`);
+    }
+    say(cellText(r, c, true));
+  }
+
+  function commandMove(a, b){
+    const pa = S.board[a.r][a.c];
+    if (S.phase === 'setup') {
+      const pb = S.board[b.r][b.c];
+      if (!pa || !pb || pa.side !== 'you' || pb.side !== 'you') return say('During setup, name two of your own pieces to swap, such as swap a1 b2.');
+      return swap(a, b);
+    }
+    if (S.phase === 'over') return say('The game is over. Use the New game button to play again.');
+    if (S.turn !== 'you') return say('Wait for the enemy to move.');
+    if (!pa || pa.side !== 'you') return say(`${sq(a.r,a.c)} doesn't hold one of your pieces. It's ${cellText(a.r,a.c,false)}.`);
+    if (!movable(pa)) return say(`Your ${pname(pa)} can't move.`);
+    const all = movesFrom(a.r, a.c);
+    const m = all.find(x => x.to.r === b.r && x.to.c === b.c);
+    if (m && m.blocked) return say(TWO_SQ);
+    if (!m) {
+      const ok = all.filter(x => !x.blocked);
+      return say(`Your ${pname(pa)} at ${sq(a.r,a.c)} can't reach ${sq(b.r,b.c)}. ` + (ok.length ? movesList(ok) : 'It has no legal moves right now.'));
+    }
+    setFocus(b.r, b.c, false);
+    say('');
+    doPlayerMove(m);
+  }
+
+  const parseSq = (l, n) => ({ c: COLS.indexOf(l.toUpperCase()), r: +n - 1 });
+  const HELP = 'Commands: two squares to move, like e4 e5. A square alone, like f7, describes it. Row 4 or column e reads a line. Moves lists your legal moves; moves e4 lists one piece. Known lists revealed enemy pieces. Status counts what is left. In setup: two squares swap pieces, shuffle reshuffles, start begins the battle.';
+
+  function runCommand(raw){
+    let t = raw.trim().toLowerCase().replace(/\s+/g, ' ');
+    if (!t) return;
+    let mm;
+    if (t === 'help' || t === '?') return say(HELP);
+    if (t === 'status') return say(statusText());
+    if (t === 'known' || t === 'enemy') return say(knownText());
+    if (t === 'shuffle') { if (S.phase !== 'setup') return say('You can only shuffle during setup.'); deploy('you'); S.sel = null; render(); return say('Your army has been reshuffled.'); }
+    if (t === 'start') { if (S.phase !== 'setup') return say('The battle has already started.'); startBattle(); $('cmd').focus(); return; }
+    if ((mm = t.match(/^row (10|[1-9])$/))) return say(rowText(+mm[1] - 1));
+    if ((mm = t.match(/^col(?:umn)? ([a-j])$/))) return say(colText(COLS.indexOf(mm[1].toUpperCase())));
+    if ((mm = t.match(/^moves(?: ([a-j])(10|[1-9]))?$/))) {
+      if (S.phase !== 'play') return say('Moves are only available during the battle.');
+      if (!mm[1]) return say(allMovesText());
+      const s = parseSq(mm[1], mm[2]), p = S.board[s.r][s.c];
+      if (!p || p.side !== 'you') return say(`${sq(s.r,s.c)} doesn't hold one of your pieces.`);
+      const ms = movesFrom(s.r, s.c).filter(x => !x.blocked);
+      return say(ms.length ? `${pname(p)} at ${sq(s.r,s.c)}. ${movesList(ms)}` : `Your ${pname(p)} at ${sq(s.r,s.c)} has no legal moves right now.`);
+    }
+    t = t.replace(/^(move|swap|go|attack) /, '');
+    if ((mm = t.match(/^(?:look |l )?([a-j])(10|[1-9])$/))) { const s = parseSq(mm[1], mm[2]); return say(cellText(s.r, s.c, true)); }
+    if ((mm = t.match(/^([a-j])(10|[1-9]) ?(?:-|to|>)? ?([a-j])(10|[1-9])$/))) return commandMove(parseSq(mm[1], mm[2]), parseSq(mm[3], mm[4]));
+    say(`I didn't understand "${raw.trim()}". Type help for the list of commands.`);
+  }
+
+  /* ---------- Wiring ---------- */
+  buildGrid();
+
+  gridEl.addEventListener('keydown', e => {
+    const { r, c } = S.focus;
+    let nr = r, nc = c;
+    switch (e.key) {
+      case 'ArrowUp': nr = Math.min(9, r + 1); break;
+      case 'ArrowDown': nr = Math.max(0, r - 1); break;
+      case 'ArrowLeft': nc = Math.max(0, c - 1); break;
+      case 'ArrowRight': nc = Math.min(9, c + 1); break;
+      case 'Home': nc = 0; break;
+      case 'End': nc = 9; break;
+      case 'Enter': case ' ': e.preventDefault(); activate(r, c); return;
+      case 'Escape': if (S.sel) { S.sel = null; render(); say('Selection cleared.'); } e.preventDefault(); return;
+      case 'r': case 'R': if (!e.ctrlKey && !e.metaKey && !e.altKey) { e.preventDefault(); say(S.lastLog || 'Nothing has happened yet.'); } return;
+      default: return;
+    }
+    e.preventDefault();
+    if (nr !== r || nc !== c) setFocus(nr, nc, true);
+  });
+
+  $('shuffleBtn').addEventListener('click', () => { deploy('you'); S.sel = null; render(); say('Your army has been reshuffled.'); });
+  $('startBtn').addEventListener('click', startBattle);
+  $('repeatBtn').addEventListener('click', () => say(S.lastLog || 'Nothing has happened yet.'));
+
+  let confirmTimer = null;
+  $('newBtn').addEventListener('click', () => {
+    const b = $('newBtn');
+    if (S.phase === 'over' || confirmTimer) {
+      clearTimeout(confirmTimer); confirmTimer = null; b.textContent = 'New game';
+      newGame(); setFocus(3, 4, true); say('New game. Your army is in rows 1 to 4. Swap pieces or start the battle.');
+      return;
+    }
+    b.textContent = 'Press again to abandon this game';
+    say('Press New game again within five seconds to abandon this game and start over.');
+    confirmTimer = setTimeout(() => { confirmTimer = null; b.textContent = 'New game'; }, 5000);
+  });
+
+  $('cmdForm').addEventListener('submit', e => {
+    e.preventDefault();
+    const inp = $('cmd');
+    runCommand(inp.value);
+    inp.value = '';
+  });
+
+  newGame();
+})();
+</script>
+</body>
+</html>
