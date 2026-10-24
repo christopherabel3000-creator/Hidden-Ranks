@@ -125,8 +125,18 @@ details summary { cursor: pointer; font-weight: 700; }
 details h3 { font-size: 1rem; margin: 1rem 0 .3rem; }
 details ul { margin: 0; padding-left: 1.2rem; }
 details p { margin: .3rem 0; max-width: 65ch; }
+.online h2 { margin: 0; }
+.joinrow { display: flex; flex-wrap: wrap; gap: .5rem; align-items: end; }
+.joinrow input { font: inherit; font-size: 1.05rem; text-transform: uppercase; width: 7rem; color: var(--ink); background: var(--bg); border: 2px solid var(--line); border-radius: 5px; padding: .4rem .6rem; }
+.gamecode { font-family: var(--font-display); font-weight: 700; font-size: 1.6rem; letter-spacing: .05em; }
+.err { color: var(--you); font-weight: 700; }
+.err:empty { display: none; }
+.link { word-break: break-all; }
 kbd { font-family: inherit; font-weight: 700; border: 1px solid var(--line); border-radius: 3px; padding: 0 .3rem; }
 </style>
+<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-database-compat.js"></script>
+<script src="firebase-config.js"></script>
 </head>
 <body>
 <div class="wrap">
@@ -139,8 +149,33 @@ kbd { font-family: inherit; font-weight: 700; border: 1px solid var(--line); bor
   <main class="layout">
     <section aria-labelledby="boardHead">
       <h2 id="boardHead">Battlefield</h2>
+      <section id="online" class="bar online" aria-labelledby="onlineHead">
+        <h2 id="onlineHead">Online play</h2>
+        <div id="onOff">
+          <p>Play a friend over the internet. Host a game and send them the code, or type their code to join.</p>
+          <div class="btns">
+            <button id="hostBtn" type="button">Host an online game</button>
+            <button id="rejoinBtn" type="button" hidden>Rejoin game</button>
+          </div>
+          <form id="joinForm" class="joinrow" autocomplete="off">
+            <div><label for="joinCode">Game code</label><input id="joinCode" type="text" maxlength="4" autocapitalize="characters" spellcheck="false" placeholder="KDRT"></div>
+            <button type="submit">Join</button>
+          </form>
+        </div>
+        <div id="onOn" hidden>
+          <p>Game code <span id="onCode" class="gamecode"></span></p>
+          <p>Invite link: <span id="onLink" class="link"></span></p>
+          <p id="onStatus"></p>
+          <div class="btns">
+            <button id="copyBtn" type="button">Copy invite link</button>
+            <button id="resignBtn" type="button" hidden>Resign</button>
+            <button id="leaveBtn" type="button">Leave online game</button>
+          </div>
+        </div>
+        <p id="onErr" class="err" role="alert"></p>
+      </section>
       <div id="setupBar" class="bar">
-        <p>Your army is placed in rows 1 to 4. To swap two pieces, select one and then the other, or type a command such as <kbd>swap a1 b2</kbd>. When you're happy, start the battle.</p>
+        <p id="setupText">Your army is placed in rows 1 to 4. To swap two pieces, select one and then the other, or type a command such as <kbd>swap a1 b2</kbd>. When you're happy, start the battle.</p>
         <div class="btns">
           <button id="shuffleBtn" type="button">Shuffle my army</button>
           <button id="startBtn" type="button" class="primary">Start the battle</button>
@@ -218,6 +253,8 @@ kbd { font-family: inherit; font-weight: 700; border: 1px solid var(--line); bor
             <li><kbd>known</kbd> lists revealed enemy pieces. <kbd>status</kbd> counts what's left.</li>
             <li><kbd>shuffle</kbd> and <kbd>start</kbd> work during setup.</li>
           </ul>
+          <h3>Online play</h3>
+          <p>Press Host an online game to get a four-letter code and an invite link for your friend. You both arrange your armies, press I'm ready, and the host moves first. Each of you sees your own army in rows 1 to 4. If you lose your connection or close the page, open the invite link again or use Rejoin game to pick up where you left off.</p>
           <h3>About the computer</h3>
           <p>The computer plays fair. It only knows what you would know: which of your pieces have moved and which have been revealed in battle.</p>
         </details>
@@ -239,6 +276,263 @@ kbd { font-family: inherit; font-weight: 700; border: 1px solid var(--line); bor
   const gridEl = $('grid'), logEl = $('log'), msgEl = $('msg');
   let S, uid = 0, gen = 0;
   const cells = [];
+
+
+  /* ---------- Online play (Firebase Realtime Database) ---------- */
+  // Each game lives at hiddenRanks/CODE as { ver, state, t, by, act }. state is JSON:
+  // { host: {dev, setup}, guest: {dev, setup} | null, moves: [[fr,fc,tr,tc], ...], resign: null | 'host' | 'guest' }
+  // Setups are stored from their owner's side (rows 1-4 = indexes 0-39). Moves are stored from the host's side.
+  // The guest sees the board turned around, so both players always have their own army in rows 1 to 4.
+  const NET = { on: false, role: null, code: null, ref: null, db: null, st: null, busy: false, applied: 0, ready: false, connected: null, everConnected: false };
+  const CODE_CHARS = 'ABCDEFGHJKLMNPQRSTUVWXYZ';
+  const SESSION_KEY = 'hr-online';
+  const CONN_ERR = 'Could not reach the online game server. Check your internet connection and try again.';
+  const NO_NET = 'Online play only works on the game website, christopherabel3000-creator.github.io/Hidden-Ranks.';
+  const LOCKED = 'Your army is locked in. The battle starts when your opponent is ready.';
+  const DEVICE = (() => {
+    let id = null;
+    try { id = localStorage.getItem('hr-device'); } catch (e) {}
+    if (!id) {
+      id = Math.random().toString(36).slice(2, 10) + Date.now().toString(36).slice(-4);
+      try { localStorage.setItem('hr-device', id); } catch (e) {}
+    }
+    return id;
+  })();
+  const flip = (r, c) => NET.role === 'guest' ? { r: 9 - r, c: 9 - c } : { r, c };
+  const foeRole = () => NET.role === 'host' ? 'guest' : 'host';
+  const hasSetup = (st, k) => !!(st && st[k] && st[k].setup);
+  const showErr = t => { $('onErr').textContent = t; };
+  const inviteLink = code => location.origin + location.pathname + '?g=' + code;
+  function saveSession(code){ try { if (code) localStorage.setItem(SESSION_KEY, code); else localStorage.removeItem(SESSION_KEY); } catch (e) {} }
+  function loadSession(){ try { return localStorage.getItem(SESSION_KEY); } catch (e) { return null; } }
+  function setUrl(code){ try { history.replaceState(null, '', code ? '?g=' + code : location.pathname); } catch (e) {} }
+
+  function netReady(){ const c = window.FIREBASE_CONFIG; return typeof firebase !== 'undefined' && !!c && !!c.apiKey && !!c.databaseURL; }
+  function netDb(){
+    if (!NET.db) {
+      const app = firebase.apps && firebase.apps.length ? firebase.app() : firebase.initializeApp(window.FIREBASE_CONFIG);
+      NET.db = app.database();
+      NET.db.ref('.info/connected').on('value', snap => {
+        const c = !!snap.val(), had = NET.everConnected, was = NET.connected;
+        NET.connected = c;
+        if (c) NET.everConnected = true;
+        if (!NET.on || !had || was === c) return;
+        logEvent(c ? 'Reconnected to the online game.' : 'Connection lost. Trying to reconnect.', 'sys');
+      });
+    }
+    return NET.db;
+  }
+  // Change the shared game safely. fn edits the parsed state; returning false cancels the change.
+  function txn(ref, fn, act){
+    return ref.transaction(cur => {
+      if (cur === null) return null;
+      let st; try { st = JSON.parse(cur.state); } catch (e) { return; }
+      if (fn(st) === false) return;
+      return { ver: cur.ver + 1, state: JSON.stringify(st), t: Date.now(), by: DEVICE, act };
+    }, null, false).then(res => res.committed && res.snapshot.exists());
+  }
+
+  async function hostOnline(){
+    showErr('');
+    if (!netReady()) return showErr(NO_NET);
+    const db = netDb();
+    try {
+      for (let i = 0; i < 6; i++) {
+        const code = Array.from({ length: 4 }, () => CODE_CHARS[rand(CODE_CHARS.length)]).join('');
+        const ref = db.ref('hiddenRanks/' + code);
+        const st = { host: { dev: DEVICE, setup: null }, guest: null, moves: [], resign: null };
+        const res = await ref.transaction(cur => cur ? undefined : { ver: 1, state: JSON.stringify(st), t: Date.now(), by: DEVICE, act: 'create' }, null, false);
+        if (res.committed) return enterOnline(code, 'host', ref);
+      }
+      showErr('Could not create a game code. Try again.');
+    } catch (e) { showErr(CONN_ERR); }
+  }
+
+  async function joinOnline(raw){
+    showErr('');
+    if (!netReady()) return showErr(NO_NET);
+    const code = String(raw || '').toUpperCase().replace(/[^A-Z]/g, '');
+    if (!/^[A-Z]{4}$/.test(code)) return showErr('Game codes are four letters, like KDRT.');
+    const ref = netDb().ref('hiddenRanks/' + code);
+    try {
+      const v = (await ref.once('value')).val();
+      if (!v) return showErr(`There's no game with code ${code}. Check the code with your friend.`);
+      const st = JSON.parse(v.state);
+      if (st.host && st.host.dev === DEVICE) return enterOnline(code, 'host', ref);
+      if (st.guest && st.guest.dev === DEVICE) return enterOnline(code, 'guest', ref);
+      if (st.guest) return showErr(`Game ${code} already has two players.`);
+      const ok = await txn(ref, s => { if (s.guest && s.guest.dev !== DEVICE) return false; if (!s.guest) s.guest = { dev: DEVICE, setup: null }; }, 'join');
+      if (!ok) return showErr(`Game ${code} already has two players.`);
+      enterOnline(code, 'guest', ref);
+    } catch (e) { showErr(CONN_ERR); }
+  }
+
+  function enterOnline(code, role, ref){
+    if (NET.ref) NET.ref.off();
+    freshState();
+    Object.assign(NET, { on: true, role, code, ref, st: null, busy: false, applied: 0, ready: false });
+    saveSession(code); setUrl(code); showErr('');
+    deploy('you');
+    logEvent(role === 'host'
+      ? `You're hosting online game ${code}. Send your friend the code or the invite link, and arrange your army while you wait.`
+      : `You joined online game ${code}. Arrange your army, then press I'm ready.`, 'sys');
+    render();
+    ref.on('value', snap => onRemote(snap.val()), () => showErr(CONN_ERR));
+  }
+
+  function leaveOnline(){
+    const keep = S.phase === 'play' ? NET.code : null;
+    if (NET.ref) NET.ref.off();
+    Object.assign(NET, { on: false, role: null, code: null, ref: null, st: null, busy: false, applied: 0, ready: false });
+    saveSession(keep); setUrl(null);
+    newGame();
+    say(keep ? `You left the online game. You can rejoin game ${keep} later from the Online play section.` : 'You left the online game. You are now playing the computer.');
+  }
+
+  function placeSetup(setup, side, turned){
+    setup.forEach((rk, i) => {
+      const r = Math.floor(i / 10), c = i % 10;
+      const at = turned ? { r: 9 - r, c: 9 - c } : { r, c };
+      S.board[at.r][at.c] = mk(side, rk);
+    });
+  }
+
+  function onRemote(v){
+    if (!NET.on) return;
+    if (!v) { showErr(`Online game ${NET.code} no longer exists.`); return; }
+    let st; try { st = JSON.parse(v.state); } catch (e) { return; }
+    const prev = NET.st, me = NET.role, them = foeRole();
+    NET.st = st;
+    if (me === 'host' && prev && st.guest && !prev.guest) logEvent('Your opponent joined the game.', 'sys');
+    if (hasSetup(st, me) && !NET.ready) {
+      if (S.phase === 'setup') { for (let r = 0; r < 4; r++) for (let c = 0; c < 10; c++) S.board[r][c] = null; placeSetup(st[me].setup, 'you', false); }
+      NET.ready = true;
+    }
+    if (S.phase === 'setup') {
+      if (hasSetup(st, 'host') && hasSetup(st, 'guest')) beginOnline(st);
+      else {
+        if (prev && hasSetup(st, me) && !hasSetup(prev, me)) logEvent("You're ready. Waiting for your opponent to finish arranging their army.", 'sys');
+        if (hasSetup(st, them) && !hasSetup(prev, them)) logEvent('Your opponent has finished arranging their army.', 'sys');
+      }
+    } else if (S.phase === 'play') syncMoves(st);
+    if (st.resign && S.phase === 'play') {
+      S.winner = st.resign === me ? 'cpu' : 'you';
+      logEvent(st.resign === me ? 'You resigned.' : 'Your opponent resigned.', 'sys');
+      endGame();
+    }
+    render();
+  }
+
+  function beginOnline(st){
+    const me = NET.role, them = foeRole();
+    for (let r = 0; r < 10; r++) for (let c = 0; c < 10; c++) S.board[r][c] = null;
+    placeSetup(st[me].setup, 'you', false);
+    placeSetup(st[them].setup, 'cpu', true);
+    Object.assign(S, { phase: 'play', sel: null, lost: { you: [], cpu: [] }, hist: { you: [], cpu: [] }, last: null, winner: null });
+    NET.applied = 0;
+    const replay = st.moves.length > 0;
+    if (replay) logEl.setAttribute('aria-live', 'off');
+    logEvent('Both armies are ready. The battle begins. ' + (me === 'host' ? 'You move first.' : 'Your opponent moves first.'), 'sys');
+    syncMoves(st);
+    if (replay) {
+      logEl.setAttribute('aria-live', 'polite');
+      say(`Rejoined game ${NET.code} after ${st.moves.length} moves. ` + (S.phase === 'over' ? 'This game is over.' : S.turn === 'you' ? 'Your turn.' : "Your opponent's turn."));
+    }
+  }
+
+  function syncMoves(st){
+    while (NET.applied < st.moves.length && S.phase === 'play') {
+      const [fr, fc, tr, tc] = st.moves[NET.applied];
+      const side = ((NET.applied % 2 === 0) === (NET.role === 'host')) ? 'you' : 'cpu';
+      const from = flip(fr, fc), to = flip(tr, tc);
+      const piece = S.board[from.r][from.c];
+      NET.applied++;
+      if (!piece || piece.side !== side) { logEvent('The board got out of step with your opponent. Leave the online game and rejoin it with the same code to reload it.', 'sys'); break; }
+      const m = { piece, from, to, target: S.board[to.r][to.c], dist: Math.abs(from.r - to.r) + Math.abs(from.c - to.c) };
+      logEvent(applyMove(m), side);
+      if (S.winner) return endGame();
+    }
+    if (S.phase !== 'play') return;
+    S.turn = ((st.moves.length % 2 === 0) === (NET.role === 'host')) ? 'you' : 'cpu';
+    if (!st.resign && !allMoves(S.turn).length) {
+      S.winner = S.turn === 'you' ? 'cpu' : 'you';
+      logEvent(S.turn === 'you' ? 'You have no pieces that can move.' : 'Your opponent has no pieces that can move.', 'sys');
+      endGame();
+    }
+  }
+
+  function sendMove(m){
+    if (NET.busy) return say('Still sending your last move. One moment.');
+    const a = flip(m.from.r, m.from.c), b = flip(m.to.r, m.to.c), n = NET.applied;
+    NET.busy = true; S.sel = null; S.focus = { ...m.to }; render();
+    txn(NET.ref, st => { if (st.moves.length !== n || st.resign) return false; st.moves.push([a.r, a.c, b.r, b.c]); }, 'move')
+      .then(ok => { NET.busy = false; if (!ok) say("Your move didn't go through because the game changed. Check the battle log and try again."); })
+      .catch(() => { NET.busy = false; say("Your move didn't go through because the connection dropped. Try again."); });
+  }
+
+  function readyOnline(){
+    if (NET.ready) return say(LOCKED);
+    if (NET.busy) return;
+    const setup = [];
+    for (let r = 0; r < 4; r++) for (let c = 0; c < 10; c++) setup.push(S.board[r][c].rank);
+    S.sel = null; NET.busy = true; render();
+    txn(NET.ref, st => { if (!st[NET.role] || st[NET.role].setup) return false; st[NET.role].setup = setup; }, 'ready')
+      .then(ok => { NET.busy = false; if (!ok && !NET.ready) say("Couldn't save your army. Try again."); })
+      .catch(() => { NET.busy = false; say(CONN_ERR); });
+  }
+
+  let resignTimer = null;
+  function resignOnline(){
+    if (!NET.on || S.phase !== 'play') return;
+    const b = $('resignBtn');
+    if (!resignTimer) {
+      b.textContent = 'Press again to resign';
+      say('Press Resign again within five seconds to give up this game.');
+      resignTimer = setTimeout(() => { resignTimer = null; b.textContent = 'Resign'; }, 5000);
+      return;
+    }
+    clearTimeout(resignTimer); resignTimer = null; b.textContent = 'Resign';
+    txn(NET.ref, st => { if (st.resign) return false; st.resign = NET.role; }, 'resign').catch(() => say(CONN_ERR));
+  }
+
+  function renderOnline(){
+    $('onOff').hidden = NET.on;
+    $('onOn').hidden = !NET.on;
+    const saved = !NET.on && loadSession();
+    $('rejoinBtn').hidden = !saved;
+    if (saved) $('rejoinBtn').textContent = `Rejoin game ${saved}`;
+    if (!NET.on) return;
+    $('onCode').textContent = NET.code.split('').join(' ');
+    $('onLink').textContent = inviteLink(NET.code);
+    $('resignBtn').hidden = S.phase !== 'play';
+    const st = NET.st, them = foeRole();
+    let s = 'Connecting.';
+    if (st) {
+      if (!st[them]) s = 'Waiting for your opponent to join.';
+      else if (S.phase === 'setup') s = hasSetup(st, them) ? 'Your opponent is ready.' : 'Your opponent is arranging their army.';
+      else if (S.phase === 'play') s = 'Battle in progress.';
+      else s = 'Game over.';
+    }
+    $('onStatus').textContent = 'Status: ' + s;
+  }
+
+  function selectLink(){
+    try { const r = document.createRange(); r.selectNodeContents($('onLink')); const sel = getSelection(); sel.removeAllRanges(); sel.addRange(r); } catch (e) {}
+    say('Copying was blocked, so the invite link is selected. Press Control C, or Command C on a Mac, to copy it.');
+  }
+
+  function bootOnline(){
+    let code = null;
+    try { const m = location.search.match(/[?&]g=([A-Za-z]{4})\b/); if (m) code = m[1].toUpperCase(); } catch (e) {}
+    if (code) joinOnline(code);
+    renderOnline();
+  }
+
+  function doShuffle(){
+    if (S.phase !== 'setup') return say('You can only shuffle during setup.');
+    if (NET.on && NET.ready) return say(LOCKED);
+    deploy('you'); S.sel = null; render(); say('Your army has been reshuffled.');
+  }
 
   const isLake = (r,c) => (r === 4 || r === 5) && (c === 2 || c === 3 || c === 6 || c === 7);
   const sq = (r,c) => COLS[c] + (r + 1);
@@ -394,17 +688,21 @@ kbd { font-family: inherit; font-weight: 700; border: 1px solid var(--line); bor
   }
 
   /* ---------- Flow ---------- */
-  function newGame(){
+  function freshState(){
     gen++;
     S = { phase: 'setup', board: Array.from({length:10}, () => Array(10).fill(null)), turn: 'you', sel: null,
           focus: { r: 3, c: 4 }, lost: { you: [], cpu: [] }, hist: { you: [], cpu: [] }, last: null, winner: null, lastLog: '' };
-    deploy('you'); deploy('cpu');
     logEl.innerHTML = '';
+  }
+  function newGame(){
+    freshState();
+    deploy('you'); deploy('cpu');
     logEvent('New game. Arrange your army in rows 1 to 4, then start the battle.', 'sys');
     render();
   }
 
   function startBattle(){
+    if (NET.on) return readyOnline();
     if (S.phase !== 'setup') return;
     S.phase = 'play'; S.sel = null; S.turn = 'you';
     logEvent('The battle begins. You move first.', 'sys');
@@ -413,6 +711,7 @@ kbd { font-family: inherit; font-weight: 700; border: 1px solid var(--line); bor
   }
 
   function doPlayerMove(m){
+    if (NET.on) return sendMove(m);
     S.sel = null;
     logEvent(applyMove(m), 'you');
     S.focus = { ...m.to };
@@ -436,7 +735,7 @@ kbd { font-family: inherit; font-weight: 700; border: 1px solid var(--line); bor
   function endGame(){
     S.phase = 'over'; S.sel = null;
     for (let r = 0; r < 10; r++) for (let c = 0; c < 10; c++) { const p = S.board[r][c]; if (p && p.side === 'cpu') p.revealed = true; }
-    logEvent(S.winner === 'you' ? 'Victory! You win the game. All enemy pieces are now shown on the board.' : 'Defeat. The computer wins this time. All enemy pieces are now shown on the board.', 'sys');
+    logEvent((S.winner === 'you' ? 'Victory! You win the game.' : NET.on ? 'Defeat. Your opponent wins this time.' : 'Defeat. The computer wins this time.') + ' All enemy pieces are now shown on the board.', 'sys');
     render();
   }
 
@@ -556,9 +855,17 @@ kbd { font-family: inherit; font-weight: 700; border: 1px solid var(--line); bor
       if (el.innerHTML !== html) el.innerHTML = html;
     }
     const tl = $('turnLine');
-    if (S.phase === 'setup') { tl.textContent = 'Setup: arrange your army'; tl.dataset.who = ''; }
-    else if (S.phase === 'over') { tl.textContent = S.winner === 'you' ? 'You won' : 'The computer won'; tl.dataset.who = S.winner; }
-    else { tl.textContent = S.turn === 'you' ? 'Your turn' : 'Enemy is moving'; tl.dataset.who = S.turn; }
+    if (S.phase === 'setup') { tl.textContent = NET.on && NET.ready ? 'Waiting for your opponent' : 'Setup: arrange your army'; tl.dataset.who = ''; }
+    else if (S.phase === 'over') { tl.textContent = S.winner === 'you' ? 'You won' : NET.on ? 'Your opponent won' : 'The computer won'; tl.dataset.who = S.winner; }
+    else { tl.textContent = S.turn === 'you' ? 'Your turn' : NET.on ? "Opponent's turn" : 'Enemy is moving'; tl.dataset.who = S.turn; }
+    $('newBtn').hidden = NET.on;
+    $('startBtn').textContent = NET.on ? (NET.ready ? 'Ready, waiting for your opponent' : "I'm ready") : 'Start the battle';
+    $('shuffleBtn').hidden = NET.on && NET.ready;
+    $('setupText').textContent = !NET.on
+      ? "Your army is placed in rows 1 to 4. To swap two pieces, select one and then the other, or type a command such as swap a1 b2. When you're happy, start the battle."
+      : NET.ready ? LOCKED
+      : "Your army is placed in rows 1 to 4. To swap two pieces, select one and then the other, or type a command such as swap a1 b2. When you're happy, press I'm ready. Your opponent can't see your layout.";
+    renderOnline();
     $('setupBar').hidden = S.phase !== 'setup';
     $('playBar').hidden = S.phase === 'setup';
     $('lossCpu').textContent = listNames(S.lost.cpu);
@@ -592,6 +899,7 @@ kbd { font-family: inherit; font-weight: 700; border: 1px solid var(--line); bor
   function activate(r, c){
     const p = S.board[r][c];
     if (S.phase === 'setup') {
+      if (NET.on && NET.ready) return say(LOCKED);
       if (!p || p.side !== 'you') return say('During setup you can only swap your own pieces, in rows 1 to 4.');
       if (!S.sel) { S.sel = { r, c }; render(); return say(`${pname(p)} at ${sq(r,c)} selected. Choose another of your pieces to swap with it.`); }
       if (S.sel.r === r && S.sel.c === c) { S.sel = null; render(); return say('Selection cleared.'); }
@@ -599,6 +907,7 @@ kbd { font-family: inherit; font-weight: 700; border: 1px solid var(--line); bor
     }
     if (S.phase === 'over') return say(cellText(r, c, true));
     if (S.turn !== 'you') return say('Wait for the enemy to move.');
+    if (NET.busy) return say('Still sending your last move. One moment.');
     if (S.sel) {
       if (S.sel.r === r && S.sel.c === c) { S.sel = null; render(); return say('Selection cleared.'); }
       const m = movesFrom(S.sel.r, S.sel.c).find(x => x.to.r === r && x.to.c === c);
@@ -616,6 +925,7 @@ kbd { font-family: inherit; font-weight: 700; border: 1px solid var(--line); bor
   function commandMove(a, b){
     const pa = S.board[a.r][a.c];
     if (S.phase === 'setup') {
+      if (NET.on && NET.ready) return say(LOCKED);
       const pb = S.board[b.r][b.c];
       if (!pa || !pb || pa.side !== 'you' || pb.side !== 'you') return say('During setup, name two of your own pieces to swap, such as swap a1 b2.');
       return swap(a, b);
@@ -637,7 +947,7 @@ kbd { font-family: inherit; font-weight: 700; border: 1px solid var(--line); bor
   }
 
   const parseSq = (l, n) => ({ c: COLS.indexOf(l.toUpperCase()), r: +n - 1 });
-  const HELP = 'Commands: two squares to move, like e4 e5. A square alone, like f7, describes it. Row 4 or column e reads a line. Moves lists your legal moves; moves e4 lists one piece. Known lists revealed enemy pieces. Status counts what is left. In setup: two squares swap pieces, shuffle reshuffles, start begins the battle.';
+  const HELP = 'Commands: two squares to move, like e4 e5. A square alone, like f7, describes it. Row 4 or column e reads a line. Moves lists your legal moves; moves e4 lists one piece. Known lists revealed enemy pieces. Status counts what is left. In setup: two squares swap pieces, shuffle reshuffles, start begins the battle, or ready in an online game.';
 
   function runCommand(raw){
     let t = raw.trim().toLowerCase().replace(/\s+/g, ' ');
@@ -646,8 +956,8 @@ kbd { font-family: inherit; font-weight: 700; border: 1px solid var(--line); bor
     if (t === 'help' || t === '?') return say(HELP);
     if (t === 'status') return say(statusText());
     if (t === 'known' || t === 'enemy') return say(knownText());
-    if (t === 'shuffle') { if (S.phase !== 'setup') return say('You can only shuffle during setup.'); deploy('you'); S.sel = null; render(); return say('Your army has been reshuffled.'); }
-    if (t === 'start') { if (S.phase !== 'setup') return say('The battle has already started.'); startBattle(); $('cmd').focus(); return; }
+    if (t === 'shuffle') return doShuffle();
+    if (t === 'start' || t === 'ready') { if (S.phase !== 'setup') return say('The battle has already started.'); startBattle(); $('cmd').focus(); return; }
     if ((mm = t.match(/^row (10|[1-9])$/))) return say(rowText(+mm[1] - 1));
     if ((mm = t.match(/^col(?:umn)? ([a-j])$/))) return say(colText(COLS.indexOf(mm[1].toUpperCase())));
     if ((mm = t.match(/^moves(?: ([a-j])(10|[1-9]))?$/))) {
@@ -686,7 +996,7 @@ kbd { font-family: inherit; font-weight: 700; border: 1px solid var(--line); bor
     if (nr !== r || nc !== c) setFocus(nr, nc, true);
   });
 
-  $('shuffleBtn').addEventListener('click', () => { deploy('you'); S.sel = null; render(); say('Your army has been reshuffled.'); });
+  $('shuffleBtn').addEventListener('click', doShuffle);
   $('startBtn').addEventListener('click', startBattle);
   $('repeatBtn').addEventListener('click', () => say(S.lastLog || 'Nothing has happened yet.'));
 
@@ -710,7 +1020,19 @@ kbd { font-family: inherit; font-weight: 700; border: 1px solid var(--line); bor
     inp.value = '';
   });
 
+  $('hostBtn').addEventListener('click', hostOnline);
+  $('rejoinBtn').addEventListener('click', () => joinOnline(loadSession()));
+  $('joinForm').addEventListener('submit', e => { e.preventDefault(); joinOnline($('joinCode').value); });
+  $('leaveBtn').addEventListener('click', leaveOnline);
+  $('resignBtn').addEventListener('click', resignOnline);
+  $('copyBtn').addEventListener('click', () => {
+    if (!NET.on) return;
+    const link = inviteLink(NET.code);
+    try { navigator.clipboard.writeText(link).then(() => say('Invite link copied.'), selectLink); } catch (e) { selectLink(); }
+  });
+
   newGame();
+  bootOnline();
 })();
 </script>
 </body>
