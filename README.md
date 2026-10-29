@@ -6,7 +6,7 @@ Play it here: https://christopherabel3000-creator.github.io/Hidden-Ranks/
 
 ## Online play
 
-Press **Host an online game** to get a four-letter code and invite link for a friend. Games are stored in the Firebase Realtime Database project shared with Gridiron Duel, under `hiddenRanks/`. The rules for both games are in `database.rules.json`, and Gridiron Duel's repo has an identical copy. Always paste the whole file into the Realtime Database Rules tab of the Firebase console, and keep the two copies the same, or the other game will stop working online.
+Press **Host an online game** to get a four-letter code and invite link for a friend. Games are stored in the Firebase Realtime Database project shared with Gridiron Duel and Shardkin: Eight Realms, under `hiddenRanks/`. The rules for all three games are in `database.rules.json`, and the Gridiron Duel and Shardkin repos have identical copies. Always paste the whole file into the Realtime Database Rules tab of the Firebase console, and keep the three copies the same, or the other games will stop working online.
 
 ## How to play
 
