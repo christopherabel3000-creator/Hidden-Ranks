@@ -133,6 +133,10 @@ details p { margin: .3rem 0; max-width: 65ch; }
 .err:empty { display: none; }
 .link { word-break: break-all; }
 .reserve { display: grid; gap: .5rem; }
+.saved { display: grid; gap: .6rem; margin: .6rem 0; }
+.saved .cmdrow { flex-wrap: wrap; align-items: center; }
+.saved label { flex-basis: 100%; font-weight: 700; }
+.saved select { flex: 1; min-width: 0; font: inherit; font-size: 1.05rem; color: var(--ink); background: var(--panel); border: 2px solid var(--line); border-radius: 5px; padding: .4rem .6rem; }
 .reserve p { margin: 0; font-weight: 700; }
 .reserve button { font-weight: 400; padding: .35rem .7rem; }
 .reserve button[aria-pressed="true"] { background: var(--ink); color: var(--bg); font-weight: 700; }
@@ -185,6 +189,19 @@ kbd { font-family: inherit; font-weight: 700; border: 1px solid var(--line); bor
           <button id="manualBtn" type="button">Place pieces myself</button>
           <button id="fillBtn" type="button" hidden>Place the rest randomly</button>
           <button id="startBtn" type="button" class="primary">Start the battle</button>
+        </div>
+        <div id="savedBox" class="saved">
+          <form id="saveForm" class="cmdrow" autocomplete="off">
+            <label for="saveName">Setup name</label>
+            <input id="saveName" type="text" maxlength="40" spellcheck="false" placeholder="My defense">
+            <button id="saveBtn" type="submit">Save this setup</button>
+          </form>
+          <div id="loadRow" class="cmdrow" hidden>
+            <label for="savedList">Saved setups</label>
+            <select id="savedList"></select>
+            <button id="loadBtn" type="button">Load setup</button>
+            <button id="delBtn" type="button">Delete setup</button>
+          </div>
         </div>
         <div id="reserveBox" class="reserve" hidden>
           <p id="reserveLeft"></p>
@@ -241,6 +258,7 @@ kbd { font-family: inherit; font-weight: 700; border: 1px solid var(--line); bor
             <li>Your army starts in a random layout. Swap two pieces by selecting one and then the other, or move a piece by selecting it and then an empty square.</li>
             <li>Press Place pieces myself to empty your rows and place all 40 pieces by hand. Choose a piece from your reserve, then press Enter on an empty square in rows 1 to 4. Place the rest randomly fills whatever is left.</li>
             <li>On the board, press <kbd>1</kbd> to <kbd>9</kbd> to choose a piece, <kbd>0</kbd> for the Marshal, <kbd>B</kbd> for a Bomb or <kbd>F</kbd> for the Flag. <kbd>Delete</kbd> picks a placed piece back up.</li>
+            <li>Once all 40 pieces are placed, type a name and press Save this setup to keep the layout on this device. At the start of a later game, choose it from Saved setups and press Load setup. Saving with the same name replaces the old layout. Commands: <kbd>save my defense</kbd>, <kbd>load my defense</kbd>, and <kbd>setups</kbd> to list them.</li>
             <li>Typed commands: <kbd>place</kbd> starts placing by hand, <kbd>place captain e4</kbd> or <kbd>place 6 e4</kbd> places a piece, <kbd>remove e4</kbd> picks one up, <kbd>reserve</kbd> lists what's left, and <kbd>fill</kbd> places the rest randomly.</li>
           </ul>
           <h3>Moving</h3>
@@ -774,6 +792,59 @@ kbd { font-family: inherit; font-weight: 700; border: 1px solid var(--line); bor
     S.pick = null; S.sel = null; render();
     say(`The remaining ${pool.length} ${pool.length === 1 ? 'piece was' : 'pieces were'} placed randomly. All 40 pieces are placed.`);
   }
+  /* ---------- Saved setups (kept on this device) ---------- */
+  const SETUPS_KEY = 'hr-setups';
+  function readSetups(){
+    try { const a = JSON.parse(localStorage.getItem(SETUPS_KEY) || '[]'); return Array.isArray(a) ? a : []; } catch (e) { return []; }
+  }
+  function writeSetups(a){ try { localStorage.setItem(SETUPS_KEY, JSON.stringify(a)); return true; } catch (e) { return false; } }
+  const findSetup = (a, name) => a.findIndex(s => s.name.toLowerCase() === String(name).trim().toLowerCase());
+  function validRanks(rs){
+    if (!Array.isArray(rs) || rs.length !== 40) return false;
+    return COUNTS.every(([rk, n]) => rs.filter(x => x === rk).length === n);
+  }
+  function saveSetup(name){
+    if (!setupOpen()) return;
+    name = String(name || '').trim();
+    if (!name) { $('saveName').focus(); return say('Type a name for this setup first, then press Save this setup.'); }
+    if (leftToPlace() > 0) return say(`Place all your pieces before saving. You have ${leftToPlace()} left.`);
+    const ranks = [];
+    for (let r = 0; r < 4; r++) for (let c = 0; c < 10; c++) ranks.push(S.board[r][c].rank);
+    const a = readSetups(), i = findSetup(a, name), was = i >= 0;
+    if (was) a[i] = { name: a[i].name, ranks }; else a.push({ name, ranks });
+    if (!writeSetups(a)) return say("Couldn't save. This browser is blocking saved data.");
+    $('saveName').value = '';
+    renderSaved(was ? a[i].name : name);
+    say(was ? `Setup ${a[i].name} updated.` : `Setup ${name} saved. You can load it at the start of any game.`);
+  }
+  function loadSetup(name){
+    if (!setupOpen()) return;
+    const a = readSetups(), i = findSetup(a, name);
+    if (i < 0) return say(a.length ? `No saved setup called ${name}. Saved setups: ${a.map(s => s.name).join(', ')}.` : 'You have no saved setups yet.');
+    if (!validRanks(a[i].ranks)) return say(`Setup ${a[i].name} is damaged and can't be loaded.`);
+    for (let r = 0; r < 4; r++) for (let c = 0; c < 10; c++) S.board[r][c] = null;
+    placeSetup(a[i].ranks, 'you', false);
+    S.reserve = null; S.pick = null; S.sel = null; render();
+    say(`Setup ${a[i].name} loaded. ${NET.on ? "Press I'm ready" : 'Start the battle'} when you're happy.`);
+  }
+  function deleteSetup(name){
+    const a = readSetups(), i = findSetup(a, name);
+    if (i < 0) return say(`No saved setup called ${name}.`);
+    const [gone] = a.splice(i, 1);
+    if (!writeSetups(a)) return say("Couldn't delete. This browser is blocking saved data.");
+    renderSaved();
+    say(`Setup ${gone.name} deleted.`);
+    if (!a.length) $('saveName').focus();
+  }
+  function renderSaved(pick){
+    const a = readSetups(), sel = $('savedList');
+    const keep = pick || sel.value;
+    sel.innerHTML = '';
+    a.forEach(s => { const o = document.createElement('option'); o.value = s.name; o.textContent = s.name; sel.appendChild(o); });
+    if (keep && findSetup(a, keep) >= 0) sel.value = a[findSetup(a, keep)].name;
+    $('loadRow').hidden = !a.length;
+  }
+
   function reserveText(){
     const n = leftToPlace();
     if (!n) return 'All 40 of your pieces are placed.';
@@ -970,6 +1041,7 @@ kbd { font-family: inherit; font-weight: 700; border: 1px solid var(--line); bor
     $('newBtn').hidden = NET.on;
     $('startBtn').textContent = NET.on ? (NET.ready ? 'Ready, waiting for your opponent' : "I'm ready") : 'Start the battle';
     $('shuffleBtn').hidden = NET.on && NET.ready;
+    $('savedBox').hidden = NET.on && NET.ready;
     renderReserve();
     $('setupText').textContent = (S.reserve && leftToPlace() > 0 && !(NET.on && NET.ready))
       ? 'Choose a piece below, then press Enter on an empty square in rows 1 to 4 to place it. On the board you can also press 1 to 9 to choose a piece, 0 for the Marshal, B for a Bomb or F for the Flag. Press Delete on a placed piece to pick it back up.'
@@ -1067,7 +1139,7 @@ kbd { font-family: inherit; font-weight: 700; border: 1px solid var(--line); bor
   }
 
   const parseSq = (l, n) => ({ c: COLS.indexOf(l.toUpperCase()), r: +n - 1 });
-  const HELP = 'Commands: two squares to move, like e4 e5. A square alone, like f7, describes it. Row 4 or column e reads a line. Moves lists your legal moves; moves e4 lists one piece. Known lists revealed enemy pieces. Status counts what is left. In setup: two squares swap pieces, shuffle reshuffles, start begins the battle, or ready in an online game.';
+  const HELP = 'Commands: two squares to move, like e4 e5. A square alone, like f7, describes it. Row 4 or column e reads a line. Moves lists your legal moves; moves e4 lists one piece. Known lists revealed enemy pieces. Status counts what is left. In setup: two squares swap pieces, shuffle reshuffles, save name and load name keep and reuse a layout, start begins the battle, or ready in an online game.';
 
   function runCommand(raw){
     let t = raw.trim().toLowerCase().replace(/\s+/g, ' ');
@@ -1090,6 +1162,9 @@ kbd { font-family: inherit; font-weight: 700; border: 1px solid var(--line); bor
     }
     if (t === 'place' || t === 'manual') return startManual();
     if (t === 'fill' || t === 'place rest' || t === 'fill rest') return fillRest();
+    if ((mm = t.match(/^save (.+)$/))) return saveSetup(raw.trim().replace(/^save\s+/i, ''));
+    if ((mm = t.match(/^load (.+)$/))) return loadSetup(raw.trim().replace(/^load\s+/i, ''));
+    if (t === 'setups' || t === 'saved') { const a = readSetups(); return say(a.length ? `Saved setups: ${a.map(x => x.name).join(', ')}.` : 'You have no saved setups yet.'); }
     if (t === 'reserve') return say(S.reserve ? reserveText() : 'Your whole army is on the board. Type place to empty your rows and place pieces yourself.');
     if ((mm = t.match(/^(?:remove|pick up|pickup|take) ([a-j])(10|[1-9])$/))) { const s = parseSq(mm[1], mm[2]); return removeAt(s.r, s.c); }
     if ((mm = t.match(/^place (?:([a-z0-9]+) )?(?:on |at )?([a-j])(10|[1-9])$/))) {
@@ -1137,6 +1212,10 @@ kbd { font-family: inherit; font-weight: 700; border: 1px solid var(--line); bor
   $('startBtn').addEventListener('click', startBattle);
   $('manualBtn').addEventListener('click', startManual);
   $('fillBtn').addEventListener('click', fillRest);
+  $('saveForm').addEventListener('submit', e => { e.preventDefault(); saveSetup($('saveName').value); });
+  $('loadBtn').addEventListener('click', () => loadSetup($('savedList').value));
+  $('delBtn').addEventListener('click', () => deleteSetup($('savedList').value));
+  renderSaved();
   $('reserveGroup').addEventListener('click', e => { const b = e.target.closest('[data-rk]'); if (!b) return; const v = b.dataset.rk; choosePick(v === 'B' || v === 'F' ? v : Number(v)); });
   $('repeatBtn').addEventListener('click', () => say(S.lastLog || 'Nothing has happened yet.'));
 
