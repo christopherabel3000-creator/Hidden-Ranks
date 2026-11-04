@@ -8,7 +8,7 @@
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Atkinson+Hyperlegible:ital,wght@0,400;0,700;1,400&family=Barlow+Condensed:wght@600;700&display=swap">
 <style>
-/* Layout: field-map board on the left, command post (commands, log, casualties) on the right; stacks on phones */
+/* Layout: field-map board on the left, command post (commands, log, remaining pieces) on the right; stacks on phones */
 :root {
   --bg: #e8ebe3;
   --panel: #f3f5ef;
@@ -240,9 +240,9 @@ kbd { font-family: inherit; font-weight: 700; border: 1px solid var(--line); bor
       </section>
 
       <section aria-labelledby="lossHead">
-        <h2 id="lossHead">Casualties</h2>
-        <p class="loss"><strong>Enemy pieces you have taken</strong><span id="lossCpu">None yet.</span></p>
-        <p class="loss"><strong>Your pieces lost</strong><span id="lossYou">None yet.</span></p>
+        <h2 id="lossHead">Remaining pieces</h2>
+        <p class="loss"><strong id="leftYouHead">Your pieces</strong><span id="lossYou"></span></p>
+        <p class="loss"><strong id="leftCpuHead">Enemy pieces</strong><span id="lossCpu"></span></p>
       </section>
 
       <section aria-labelledby="helpHead">
@@ -252,14 +252,14 @@ kbd { font-family: inherit; font-weight: 700; border: 1px solid var(--line); bor
           <h3>Goal</h3>
           <p>Capture the enemy Flag, or leave the enemy with no piece that can move. You can see your own ranks; enemy ranks stay hidden until a fight reveals them.</p>
           <h3>Pieces, strongest first</h3>
-          <p>Marshal 10 (1), General 9 (1), Colonel 8 (2), Major 7 (3), Captain 6 (4), Lieutenant 5 (4), Sergeant 4 (4), Miner 3 (5), Scout 2 (8), Spy 1 (1), Bomb (6), Flag (1).</p>
+          <p>Marshal 1 (1), General 2 (1), Colonel 3 (2), Major 4 (3), Captain 5 (4), Lieutenant 6 (4), Sergeant 7 (4), Miner 8 (5), Scout 9 (8), Spy 10 (1), Bomb (6), Flag (1).</p>
           <h3>Setting up</h3>
           <ul>
             <li>Your army starts in a random layout. Swap two pieces by selecting one and then the other, or move a piece by selecting it and then an empty square.</li>
             <li>Press Place pieces myself to empty your rows and place all 40 pieces by hand. Choose a piece from your reserve, then press Enter on an empty square in rows 1 to 4. Place the rest randomly fills whatever is left.</li>
-            <li>On the board, press <kbd>1</kbd> to <kbd>9</kbd> to choose a piece, <kbd>0</kbd> for the Marshal, <kbd>B</kbd> for a Bomb or <kbd>F</kbd> for the Flag. <kbd>Delete</kbd> picks a placed piece back up.</li>
+            <li>On the board, press <kbd>1</kbd> to <kbd>9</kbd> to choose a piece, <kbd>0</kbd> for the Spy, <kbd>B</kbd> for a Bomb or <kbd>F</kbd> for the Flag. <kbd>Delete</kbd> picks a placed piece back up.</li>
             <li>Once all 40 pieces are placed, type a name and press Save this setup to keep the layout on this device. At the start of a later game, choose it from Saved setups and press Load setup. Saving with the same name replaces the old layout. Commands: <kbd>save my defense</kbd>, <kbd>load my defense</kbd>, and <kbd>setups</kbd> to list them.</li>
-            <li>Typed commands: <kbd>place</kbd> starts placing by hand, <kbd>place captain e4</kbd> or <kbd>place 6 e4</kbd> places a piece, <kbd>remove e4</kbd> picks one up, <kbd>reserve</kbd> lists what's left, and <kbd>fill</kbd> places the rest randomly.</li>
+            <li>Typed commands: <kbd>place</kbd> starts placing by hand, <kbd>place captain e4</kbd> or <kbd>place 5 e4</kbd> places a piece, <kbd>remove e4</kbd> picks one up, <kbd>reserve</kbd> lists what's left, and <kbd>fill</kbd> places the rest randomly.</li>
           </ul>
           <h3>Moving</h3>
           <ul>
@@ -270,7 +270,7 @@ kbd { font-family: inherit; font-weight: 700; border: 1px solid var(--line); bor
           </ul>
           <h3>Fighting</h3>
           <ul>
-            <li>Move onto an enemy to attack. Both ranks are revealed and the higher rank wins. Equal ranks remove both.</li>
+            <li>Move onto an enemy to attack. Both ranks are revealed and the stronger piece wins. Lower numbers are stronger, so a Marshal 1 beats a General 2. Equal ranks remove both.</li>
             <li>The Spy defeats the Marshal, but only when the Spy attacks.</li>
             <li>A Bomb destroys any attacker except a Miner, which defuses it.</li>
           </ul>
@@ -573,7 +573,9 @@ kbd { font-family: inherit; font-weight: 700; border: 1px solid var(--line); bor
   const sq = (r,c) => COLS[c] + (r + 1);
   const key = p => p.r * 10 + p.c;
   const movable = p => p.rank !== 'B' && p.rank !== 'F';
-  const pname = p => movable(p) ? `${NAMES[p.rank]} ${p.rank}` : NAMES[p.rank];
+  /* Display number: Marshal shows 1, Spy shows 10. Internal ranks (used by combat and AI) are unchanged. */
+  const LABEL = rk => typeof rk === 'number' ? 11 - rk : rk;
+  const pname = p => movable(p) ? `${NAMES[p.rank]} ${LABEL(p.rank)}` : NAMES[p.rank];
   const rand = n => Math.floor(Math.random() * n);
   const inB = (r,c) => r >= 0 && r < 10 && c >= 0 && c < 10;
   const mk = (side, rank) => ({ id: ++uid, side, rank, revealed: false, moved: false });
@@ -724,7 +726,7 @@ kbd { font-family: inherit; font-weight: 700; border: 1px solid var(--line); bor
 
 
   /* ---------- Placing pieces by hand ---------- */
-  const RANK_KEYS = { '1': 1, '2': 2, '3': 3, '4': 4, '5': 5, '6': 6, '7': 7, '8': 8, '9': 9, '0': 10, b: 'B', f: 'F' };
+  const RANK_KEYS = { '1': 10, '2': 9, '3': 8, '4': 7, '5': 6, '6': 5, '7': 4, '8': 3, '9': 2, '0': 1, b: 'B', f: 'F' };
   const RANK_WORDS = { marshal: 10, general: 9, colonel: 8, major: 7, captain: 6, lieutenant: 5, sergeant: 4, miner: 3, scout: 2, spy: 1, bomb: 'B', flag: 'F', b: 'B', f: 'F' };
   const rankName = rk => pname({ rank: rk });
   const leftToPlace = () => S.reserve ? COUNTS.reduce((n, [rk]) => n + (S.reserve[rk] || 0), 0) : 0;
@@ -732,7 +734,7 @@ kbd { font-family: inherit; font-weight: 700; border: 1px solid var(--line); bor
   function parseRank(w){
     w = String(w).toLowerCase();
     if (RANK_WORDS[w] !== undefined) return RANK_WORDS[w];
-    const n = Number(w); return Number.isInteger(n) && n >= 1 && n <= 10 ? n : null;
+    const n = Number(w); return Number.isInteger(n) && n >= 1 && n <= 10 ? 11 - n : null;
   }
   function setupOpen(){
     if (S.phase !== 'setup') { say('You can only arrange your army during setup.'); return false; }
@@ -749,7 +751,7 @@ kbd { font-family: inherit; font-weight: 700; border: 1px solid var(--line); bor
     for (let r = 0; r < 4; r++) for (let c = 0; c < 10; c++) S.board[r][c] = null;
     S.reserve = Object.fromEntries(COUNTS); S.pick = 10; S.sel = null;
     render();
-    say('Your rows are empty and all 40 pieces are in your reserve. The Marshal 10 is ready to place. Press Enter on an empty square in rows 1 to 4 to place it.');
+    say('Your rows are empty and all 40 pieces are in your reserve. The Marshal 1 is ready to place. Press Enter on an empty square in rows 1 to 4 to place it.');
   }
   function choosePick(rk){
     if (!setupOpen()) return;
@@ -941,11 +943,6 @@ kbd { font-family: inherit; font-weight: 700; border: 1px solid var(--line); bor
   const movesList = ms => 'Can go to ' + ms.map(m => sq(m.to.r, m.to.c) + (m.target ? ' to attack' : '')).join(', ') + '.';
   function rowText(r){ return `Row ${r+1}: ` + COLS.split('').map((L,c) => `${L}, ${cellText(r,c,false)}`).join('; ') + '.'; }
   function colText(c){ const parts = []; for (let r = 0; r < 10; r++) parts.push(`${r+1}, ${cellText(r,c,false)}`); return `Column ${COLS[c]}, row 1 upward: ` + parts.join('; ') + '.'; }
-  function listNames(arr){
-    if (!arr.length) return 'None yet.';
-    const n = {}; arr.forEach(p => { n[p.rank] = (n[p.rank] || 0) + 1; });
-    return COUNTS.filter(([rk]) => n[rk]).map(([rk]) => `${n[rk]} ${NAMES[rk]}${n[rk] > 1 ? 's' : ''}`).join(', ') + '.';
-  }
   function remainingText(side){
     const lost = {}; S.lost[side].forEach(p => { lost[p.rank] = (lost[p.rank] || 0) + 1; });
     return COUNTS.map(([rk,n]) => [rk, n - (lost[rk] || 0)]).filter(([,n]) => n > 0).map(([rk,n]) => `${n} ${NAMES[rk]}${n > 1 ? 's' : ''}`).join(', ') + '.';
@@ -1023,10 +1020,10 @@ kbd { font-family: inherit; font-weight: 700; border: 1px solid var(--line); bor
       let html = '';
       if (p) {
         if (p.side === 'you') {
-          const big = movable(p) ? p.rank : p.rank;
+          const big = LABEL(p.rank);
           html = `<span class="tok you${p.revealed && S.phase !== 'setup' ? ' seen' : ''}" aria-hidden="true"><b>${big}</b><i>${SHORT[p.rank]}</i></span>`;
         } else if (p.revealed) {
-          html = `<span class="tok cpu" aria-hidden="true"><b>${p.rank}</b><i>${SHORT[p.rank]}</i></span>`;
+          html = `<span class="tok cpu" aria-hidden="true"><b>${LABEL(p.rank)}</b><i>${SHORT[p.rank]}</i></span>`;
         } else {
           html = `<span class="tok hid${p.moved ? ' moved' : ''}" aria-hidden="true"></span>`;
         }
@@ -1044,7 +1041,7 @@ kbd { font-family: inherit; font-weight: 700; border: 1px solid var(--line); bor
     $('savedBox').hidden = NET.on && NET.ready;
     renderReserve();
     $('setupText').textContent = (S.reserve && leftToPlace() > 0 && !(NET.on && NET.ready))
-      ? 'Choose a piece below, then press Enter on an empty square in rows 1 to 4 to place it. On the board you can also press 1 to 9 to choose a piece, 0 for the Marshal, B for a Bomb or F for the Flag. Press Delete on a placed piece to pick it back up.'
+      ? 'Choose a piece below, then press Enter on an empty square in rows 1 to 4 to place it. On the board you can also press 1 to 9 to choose a piece, 0 for the Spy, B for a Bomb or F for the Flag. Press Delete on a placed piece to pick it back up.'
       : !NET.on
       ? "Your army is placed in rows 1 to 4. To swap two pieces, select one and then the other, or type a command such as swap a1 b2, or press Place pieces myself to set up from scratch. When you're happy, start the battle."
       : NET.ready ? LOCKED
@@ -1052,8 +1049,10 @@ kbd { font-family: inherit; font-weight: 700; border: 1px solid var(--line); bor
     renderOnline();
     $('setupBar').hidden = S.phase !== 'setup';
     $('playBar').hidden = S.phase === 'setup';
-    $('lossCpu').textContent = listNames(S.lost.cpu);
-    $('lossYou').textContent = listNames(S.lost.you);
+    $('leftYouHead').textContent = `Your pieces (${40 - S.lost.you.length} left)`;
+    $('leftCpuHead').textContent = `Enemy pieces (${40 - S.lost.cpu.length} left)`;
+    $('lossYou').textContent = remainingText('you');
+    $('lossCpu').textContent = remainingText('cpu');
   }
 
   function setFocus(r, c, moveDom){
