@@ -104,7 +104,8 @@ Apple asks every new app for six things in this field: a screen recording made o
 Hidden Ranks is a complete strategy board game for one or two players, built to be fully playable with VoiceOver by a developer who plays with a screen reader. The build was tested on a physical iPhone through TestFlight before submission.
 
 1. SCREEN RECORDING
-Recorded on a physical iPhone running the latest iOS, starting from launching the app: (the link to the recording goes here)
+Recorded on a physical iPhone running the latest iOS, starting from launching the app: https://youtu.be/BI2rw-ZNAjA
+The voice heard in the recording is VoiceOver, since the developer plays the game with a screen reader.
 The app has no account registration or login, no user-generated content (players share only game moves; there are no names, messages or chat), and no paid content or purchases. So those flows don't exist to show.
 
 2. PURPOSE AND AUDIENCE
