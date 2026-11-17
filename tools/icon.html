@@ -1,0 +1,21 @@
+<!doctype html>
+<!-- Hidden Ranks: the app icon and launch image, drawn with the game's own colors and font.
+     tools/icon.py opens this page and saves it as PNG files. ?splash draws the launch image. -->
+<html><head><meta charset="utf-8">
+<link rel="stylesheet" href="../fonts/fonts.css">
+<style>
+  html, body { margin: 0; }
+  .art { position: relative; overflow: hidden; background: radial-gradient(circle at 50% 42%, #2c3626 0%, #1a2018 55%, #10140f 100%); }
+  .icon { width: 1024px; height: 1024px; }
+  .splash { width: 2732px; height: 2732px; background: #141913; }
+  .pair { position: absolute; left: 50%; top: 50%; width: 1024px; height: 1024px; transform: translate(-50%, -50%); }
+  .splash .pair { transform: translate(-50%, -50%) scale(.62); }
+  .tile { position: absolute; width: 470px; height: 470px; border-radius: 74px; display: grid; place-items: center;
+    font: 700 360px/1 "Barlow Condensed", "Arial Narrow", sans-serif; color: #fff; box-shadow: 0 26px 0 rgba(0,0,0,.34), 0 40px 70px rgba(0,0,0,.45); }
+  .cpu { left: 438px; top: 118px; background: repeating-linear-gradient(135deg, #3a71a0 0 34px, #2f5f88 34px 68px); border: 10px solid #5b93c4; box-sizing: border-box; }
+  .you { left: 116px; top: 420px; background: #c84a40; border: 10px solid #e3766c; box-sizing: border-box; }
+  .tile span { transform: translateY(-10px); }
+</style></head>
+<body><div id="art" class="art icon"><div class="pair"><div class="tile cpu"><span>?</span></div><div class="tile you"><span>1</span></div></div></div>
+<script>if (location.search.includes('splash')) document.getElementById('art').className = 'art splash';</script>
+</body></html>

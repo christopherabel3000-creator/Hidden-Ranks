@@ -1,0 +1,10 @@
+{
+  "appId": "com.playbyear.hiddenranks",
+  "appName": "Hidden Ranks",
+  "webDir": "www",
+  "ios": {
+    "contentInset": "never",
+    "backgroundColor": "#141913",
+    "limitsNavigationsToAppBoundDomains": false
+  }
+}
