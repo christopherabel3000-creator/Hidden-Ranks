@@ -99,11 +99,33 @@ Check before marking: Larger Text, Sufficient Contrast, Differentiate Without Co
 
 ## Notes for the reviewer
 
-Hidden Ranks is a complete strategy board game for one or two players, built to be fully playable with VoiceOver by a developer who plays with a screen reader. The whole game is bundled in the app, and games against the computer run offline. There are no accounts, no purchases, and no content shared between users other than game moves.
+Apple asks every new app for six things in this field: a screen recording made on a real iPhone, and answers 2 to 6 below. Only the recording link changes.
 
-To try it: the game opens ready to play against the computer. Scroll to the board, tap Start the battle, then tap one of your red pieces in row 4 and tap the empty square in front of it to move. Move onto a blue piece to attack it. The rules are under How to play at the bottom.
+Hidden Ranks is a complete strategy board game for one or two players, built to be fully playable with VoiceOver by a developer who plays with a screen reader. The build was tested on a physical iPhone through TestFlight before submission.
 
-Online play is optional and uses Google Firebase. To try it with one device: tap Host an online game, which shows a four-letter code and an invite link. Open the link in a browser on a second device or a computer to join as the other player (the website and the app can play each other). Both players tap I'm ready and the host moves first.
+1. SCREEN RECORDING
+Recorded on a physical iPhone running the latest iOS, starting from launching the app: (the link to the recording goes here)
+The app has no account registration or login, no user-generated content (players share only game moves; there are no names, messages or chat), and no paid content or purchases. So those flows don't exist to show.
+
+2. PURPOSE AND AUDIENCE
+A strategy board game of bluff and deduction on a 10 by 10 board. Each side commands 40 pieces whose ranks stay hidden from the enemy until they fight, and the goal is to capture the enemy Flag. It can be played against a computer opponent or against a friend online. It is for strategy and board game fans, and especially for blind and low-vision players: it was designed for VoiceOver from the start, so every square, move and fight is read out, and the game can also be played by typing commands.
+
+3. HOW TO USE IT
+No account, login or sample files are needed. The game opens ready to play against the computer. Scroll to the board, tap Start the battle, then tap one of your red pieces in row 4 and tap the empty square in front of it to move. Move onto a blue piece to attack it. The rules are under How to play at the bottom.
+To try online play with one device: tap Host an online game, which shows a four-letter code and an invite link. Open the link in a browser on a second device or a computer to join as the other player (the website and the app can play each other). Both players tap I'm ready and the host moves first.
+
+4. EXTERNAL SERVICES
+Only one, and it is optional: Google Firebase Realtime Database, used for online games between two friends who share a four-letter code. There are no authentication services, payment processors, ad networks, analytics or AI services. The whole game is bundled in the app, and games against the computer run offline.
+
+5. REGIONS
+The app works the same in every region. It is in English only. There is no region-specific content or behavior.
+
+6. REGULATED INDUSTRIES AND THIRD-PARTY MATERIAL
+Not applicable. The app is not in a regulated industry. It contains no third-party or licensed material: the name, artwork, text and code are original. The two fonts are used under the SIL Open Font License.
+
+## Price and availability
+
+Free. Every country and region except the 27 European Union countries (selling there needs a trader declaration) and China mainland (games there need extra filings). Released automatically once approved.
 
 ## Encryption
 
